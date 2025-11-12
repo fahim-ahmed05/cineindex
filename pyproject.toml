@@ -1,6 +1,6 @@
 [project]
 name = "cineindex"
-version = "0.1.0"
+version = "0.1.2"
 description = "A fast terminal-based media indexer and player for directory-style servers."
 requires-python = ">=3.11"
 dependencies = [
