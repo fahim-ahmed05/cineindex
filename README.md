@@ -1,17 +1,6 @@
 # CineIndex
 
-
-```bash
-_________ .__              .___            .___             
-\_   ___ \|__| ____   ____ |   | ____    __| _/____ ___  ___
-/    \  \/|  |/    \_/ __ \|   |/    \  / __ |/ __ \\  \/  /
-\     \___|  |   |  \  ___/|   |   |  \/ /_/ \  ___/ >    < 
- \______  /__|___|  /\___  >___|___|  /\____ |\___  >__/\_ \
-        \/        \/     \/         \/      \/    \/  
-```
-
-
-**CineIndex** is a high-performance, terminal-based media indexer and browser for directory-style web servers (like Apache and h5ai).  
+CineIndex is a high-performance, terminal-based media indexer and browser for directory-style web servers (like Apache and h5ai).  
 
 
 ## Features
@@ -53,7 +42,7 @@ uv run cineindex
 
 CineIndex creates demo `roots.json` and `config.json` on first run.
 
-```json
+```jsonc
 // roots.json
 [
   {
