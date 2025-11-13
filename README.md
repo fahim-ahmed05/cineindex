@@ -47,7 +47,6 @@ CineIndex creates demo `roots.json` and `config.json` on first run.
 [
   {
     "url": "http://10.12.100.34/",
-    "cookie": "",
     "tag": "FTP"
   }
 ]
@@ -56,8 +55,8 @@ CineIndex creates demo `roots.json` and `config.json` on first run.
 {
   "video_extensions": ["mp4", "mkv", "avi"],
   "blocked_dirs": ["Ebooks", "Software"],
-  "mpv_args": ["--fullscreen", "--watch-later-options=start,volume,mute"],
-  "download_dir": "downloads"
+  "mpv_args": ["--save-position-on-quit", "--fullscreen", "--watch-later-options=start,volume,mute"],
+  "download_dir": ""
 }
 ```
 
