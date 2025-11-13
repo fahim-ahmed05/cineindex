@@ -85,6 +85,7 @@ def ensure_config_files() -> None:
             # example mpv args users can fill in:
             "mpv_args": [
                 "--save-position-on-quit",
+                "--fullscreen",
                 "--watch-later-options=start,volume,mute",
             ],
         }
