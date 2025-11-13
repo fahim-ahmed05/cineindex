@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional, List, Tuple
 from pathlib import Path
 import time
+
 import requests
 from colorama import Fore, Style, init
 
@@ -104,8 +105,18 @@ def crawl_root(
 ) -> None:
     """
     Crawl a single root directory and update the local database.
-    Includes colored progress output for clarity.
+
+    Incremental logic (important bits):
+
+    - We ALWAYS fetch & parse every directory page (so subdirs are discovered).
+    - If incremental is True:
+        * If dir_modified is not None and unchanged in DB:
+              - we SKIP rewriting this dir's files in media/dirs
+              - but we STILL descend into its subdirs.
+        * If dir_modified is None:
+              - we ALWAYS reindex this dir's files (no timestamp to compare).
     """
+
     own_conn = False
     if conn is None:
         conn = get_conn()
@@ -143,83 +154,103 @@ def crawl_root(
                 continue
 
             parsed = parse_directory_page(html, dir_url)
-
             dir_modified = parsed.dir_modified
+
+            unchanged = False
             if incremental:
-                cur.execute("SELECT modified FROM dirs WHERE url = ?", (dir_url,))
-                row = cur.fetchone()
-                if row is not None and row["modified"] == dir_modified:
-                    skipped_dirs += 1
-                    continue
-
-            cur.execute(
-                """
-                INSERT INTO dirs (url, root, parent, name, modified)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(url) DO UPDATE SET
-                    root=excluded.root,
-                    parent=excluded.parent,
-                    name=excluded.name,
-                    modified=excluded.modified
-                """,
-                (
-                    dir_url,
-                    root_cfg.url,
-                    parent_url,
-                    rel_path.rsplit("/", 1)[-1] if rel_path != "/" else "",
-                    dir_modified,
-                ),
-            )
-
-            cur.execute(
-                "DELETE FROM media WHERE root = ? AND path = ?",
-                (root_cfg.url, rel_path),
-            )
+                if dir_modified is not None:
+                    # Only attempt skip if we have a timestamp
+                    cur.execute("SELECT modified FROM dirs WHERE url = ?", (dir_url,))
+                    row = cur.fetchone()
+                    if row is not None and row["modified"] == dir_modified:
+                        unchanged = True
+                        skipped_dirs += 1
 
             batch_files = 0
-            for f in parsed.files:
-                if not _should_keep_file(f.name, cfg):
-                    continue
 
+            if not incremental or not unchanged:
+                # Either full build, or directory changed (or no timestamp)
                 cur.execute(
                     """
-                    INSERT INTO media (url, root, path, filename, modified, size)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO dirs (url, root, parent, name, modified)
+                    VALUES (?, ?, ?, ?, ?)
                     ON CONFLICT(url) DO UPDATE SET
                         root=excluded.root,
-                        path=excluded.path,
-                        filename=excluded.filename,
-                        modified=excluded.modified,
-                        size=excluded.size
+                        parent=excluded.parent,
+                        name=excluded.name,
+                        modified=excluded.modified
                     """,
-                    (f.url, root_cfg.url, rel_path, f.name, f.modified, f.size),
+                    (
+                        dir_url,
+                        root_cfg.url,
+                        parent_url,
+                        rel_path.rsplit("/", 1)[-1] if rel_path != "/" else "",
+                        dir_modified,
+                    ),
                 )
-                batch_files += 1
 
-            inserted_files += batch_files
+                # Clear old files for this path (for this root)
+                cur.execute(
+                    "DELETE FROM media WHERE root = ? AND path = ?",
+                    (root_cfg.url, rel_path),
+                )
+
+                for f in parsed.files:
+                    if not _should_keep_file(f.name, cfg):
+                        continue
+
+                    cur.execute(
+                        """
+                        INSERT INTO media (url, root, path, filename, modified, size)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(url) DO UPDATE SET
+                            root=excluded.root,
+                            path=excluded.path,
+                            filename=excluded.filename,
+                            modified=excluded.modified,
+                            size=excluded.size
+                        """,
+                        (f.url, root_cfg.url, rel_path, f.name, f.modified, f.size),
+                    )
+                    batch_files += 1
+
+                inserted_files += batch_files
+
             processed_dirs += 1
 
+            # Status output
             print(Fore.CYAN + f"[DIR] {dir_url}")
-            print(
-                Fore.GREEN
-                + f"  - found {batch_files} files"
-                + Fore.YELLOW
-                + f", {len(parsed.subdirs)} subdirs"
-            )
+            if unchanged and incremental:
+                print(
+                    Fore.YELLOW
+                    + "  - unchanged (timestamp match), skipping files; descending into subdirs."
+                )
+            else:
+                print(
+                    Fore.GREEN
+                    + f"  - indexed {batch_files} files"
+                    + Fore.YELLOW
+                    + f", {len(parsed.subdirs)} subdirs"
+                )
 
+            # Always descend into subdirectories, even if this dir was unchanged
             for d in parsed.subdirs:
                 queue.append((d.url, dir_url))
 
             if processed_dirs % 20 == 0:
                 conn.commit()
-                print(Style.DIM + f"  ...progress: {processed_dirs} dirs processed...")
+                print(
+                    Style.DIM
+                    + f"  ...progress: {processed_dirs} dirs processed, "
+                    f"{skipped_dirs} skipped as unchanged..."
+                )
 
         conn.commit()
         elapsed = time.time() - t0
         print(
             Fore.MAGENTA
-            + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, skipped={skipped_dirs}, "
-            + f"files={inserted_files}, time={elapsed:.1f}s\n"
+            + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, "
+            f"skipped={skipped_dirs}, files={inserted_files}, time={elapsed:.1f}s\n"
         )
     finally:
         if own_conn:
