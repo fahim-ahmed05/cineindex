@@ -71,13 +71,8 @@ def ensure_config_files() -> None:
     created_any = False
 
     if not ROOTS_JSON.exists():
-        demo_roots = [
-            {
-                "url": "http://example-server/ftps10/Movies/",
-                "cookie": "",
-                "tag": "FTPS10",
-            }
-        ]
+        demo_roots = [{"url": "http://example-server/movies/", "tag": "Movies"}]
+
         ROOTS_JSON.write_text(json.dumps(demo_roots, indent=2), encoding="utf-8")
         print(Fore.YELLOW + f"[SETUP] Created demo roots.json at {ROOTS_JSON}")
         created_any = True
@@ -532,7 +527,9 @@ def download_index() -> None:
         root_tags = build_root_tag_map()
 
         while True:
-            pattern = input(Fore.YELLOW + "Type a search pattern (ENTER to return): ").strip()
+            pattern = input(
+                Fore.YELLOW + "Type a search pattern (ENTER to return): "
+            ).strip()
             if not pattern:
                 print()
                 return
