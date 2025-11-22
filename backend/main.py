@@ -443,7 +443,7 @@ def show_stats() -> None:
 def search_index() -> None:
     init_db()
     conn = get_conn()
-    print(Fore.MAGENTA + "\n=== CineIndex Stream ===")
+    print(Fore.MAGENTA + "\n=== CineIndex Search ===")
     try:
         print(Fore.CYAN + "\n[SEARCH] Loading media entries...")
         entries = load_media_entries(conn)
@@ -455,21 +455,7 @@ def search_index() -> None:
         choices = build_choice_list(entries)
         root_tags = build_root_tag_map()
 
-        while True:
-            pattern = input(
-                Fore.YELLOW + "Type a search query (ENTER to return): "
-            ).strip()
-            if not pattern:
-                print()
-                return
-
-            results = search_media(
-                pattern, entries=entries, choices=choices, limit=50, score_cutoff=40
-            )
-            if not results:
-                print(Fore.RED + "  No matches.\n")
-                continue
-
+        def render_results(results: list[tuple[MediaEntry, float]]) -> None:
             print()
             for i in reversed(range(len(results))):
                 entry, score = results[i]
@@ -480,14 +466,65 @@ def search_index() -> None:
                 print(Fore.YELLOW + f"    [{display_root}] {entry.path}")
                 if i != 0:
                     print(separator_line())
-
             print()
+
+        last_results: list[tuple[MediaEntry, float]] | None = None
+
+        while True:
+            # If we have sticky results from a previous play, re-show them first.
+            if last_results:
+                render_results(last_results)
+                # Same selection loop, but returns to query when ENTER is pressed.
+                while True:
+                    sel = input(
+                        Fore.CYAN + "Select number to play (ENTER to search again): "
+                    ).strip()
+                    if not sel:
+                        print()
+                        last_results = None  # abandon sticky results; go to new search
+                        break
+                    if not sel.isdigit():
+                        print(Fore.RED + "  Invalid selection.\n")
+                        continue
+                    num = int(sel)
+                    if not (1 <= num <= len(last_results)):
+                        print(Fore.RED + "  Out of range.\n")
+                        continue
+                    entry, _ = last_results[num - 1]
+                    play_entry(entry, conn)
+                    # After mpv exits, we simply loop and re-render the same list again.
+
+            # New search
+            pattern = input(
+                Fore.YELLOW + "Type a search query (ENTER to return): "
+            ).strip()
+            if not pattern:
+                print()
+                return
+
+            results = search_media(
+                pattern,
+                entries=entries,
+                choices=choices,
+                limit=50,
+                score_cutoff=40,
+            )
+            if not results:
+                print(Fore.RED + "  No matches.\n")
+                last_results = None
+                continue
+
+            # Show and enter selection loop; after play, keep results sticky
+            last_results = results
+            render_results(results)
+
             while True:
                 sel = input(
                     Fore.CYAN + "Select number to play (ENTER to search again): "
                 ).strip()
                 if not sel:
                     print()
+                    last_results = None  # abandon sticky list, go back to query prompt
                     break
                 if not sel.isdigit():
                     print(Fore.RED + "  Invalid selection.\n")
@@ -498,7 +535,8 @@ def search_index() -> None:
                     continue
                 entry, _ = results[num - 1]
                 play_entry(entry, conn)
-                break
+                # Do not break: we keep showing the same results for more selections
+
     finally:
         conn.close()
 
