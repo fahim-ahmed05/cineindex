@@ -24,17 +24,19 @@ CineIndex is a high-performance, terminal-based media indexer and browser for di
 
 Clone and install:
 
+```bash
     git clone git@github.com:fahim-ahmed05/cineindex.git
     cd cineindex
     uv sync
     uv tool install .
-
+```
 ## ▶️ Run CineIndex
 
 Just type in a terminal:
 
+```bash
     cineindex
-
+```
 
 
 # 📁 File Locations (Config, Database, History)
@@ -96,15 +98,18 @@ Created automatically on first run.
 
 ## Example roots.json
 
+```json
     [
       {
         "url": "http://10.12.100.34/",
         "tag": "FTP"
       }
     ]
+```
 
 ## Example config.json
 
+```json
     {
       "video_extensions": ["mp4", "mkv", "avi"],
       "blocked_dirs": ["Ebooks", "Software"],
@@ -115,8 +120,7 @@ Created automatically on first run.
       ],
       "download_dir": ""
     }
-
-
+```
 
 # 🎞️ Watch History
 
