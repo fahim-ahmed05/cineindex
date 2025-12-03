@@ -3,15 +3,28 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-# backend/app/db.py → ROOT is backend/
-ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = ROOT / "media_index.db"
+from platformdirs import PlatformDirs
+
+APP_NAME = "CineIndex"
+APP_AUTHOR = "Fahim Ahmed"
+
+_dirs = PlatformDirs(APP_NAME, APP_AUTHOR, ensure_exists=True)
+
+# OS-appropriate user config and data dirs:
+# - Linux:  ~/.config/CineIndex/   (config), ~/.local/share/CineIndex/ (data)
+# - macOS:  ~/Library/Application Support/CineIndex/ (both)
+# - Win:    %LOCALAPPDATA%\Fahim Ahmed\CineIndex\ (both, by default)
+CONFIG_DIR = Path(_dirs.user_config_dir)
+DATA_DIR = Path(_dirs.user_data_dir)
+
+DB_PATH = DATA_DIR / "media_index.db"
 
 
 def get_conn() -> sqlite3.Connection:
     """
     Open a SQLite connection with row access by column name.
     """
+    # parent dir is ensured by PlatformDirs(ensure_exists=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
