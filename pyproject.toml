@@ -17,7 +17,7 @@ homepage = "https://github.com/fahim-ahmed05/CineIndex"
 repository = "https://github.com/fahim-ahmed05/CineIndex"
 
 [project.scripts]
-cineindex = "backend.main:main"
+cineindex = "main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -25,9 +25,9 @@ build-backend = "hatchling.build"
 
 # Build config (wheel)
 [tool.hatch.build.targets.wheel]
-packages = ["backend"]
-include = ["backend/cineindex-history.lua"]
+packages = ["app"]
+include = ["cineindex-history.lua"]
 
 # (Optional) sdist config mirrors the wheel include
 [tool.hatch.build.targets.sdist]
-include = ["backend/**/*", "README.md", "LICENSE", "pyproject.toml"]
+include = ["app/**/*", "README.md", "LICENSE", "pyproject.toml"]

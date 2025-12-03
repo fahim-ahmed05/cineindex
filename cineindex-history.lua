@@ -3,8 +3,7 @@
 local utils = require "mp.utils"
 
 local script_dir = mp.get_script_directory() or "."
-local backend_dir = utils.join_path(script_dir, "backend")
-local logfile = utils.join_path(backend_dir, "cineindex-mpv-events.log")
+local logfile = utils.join_path(script_dir, "cineindex-mpv-events.log")
 
 local function json_escape(str)
     if not str then
