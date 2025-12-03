@@ -47,11 +47,15 @@ CineIndex stores all persistent data in OS-appropriate application directories, 
 
 Config directory:
 
+```bash
     ~/.config/CineIndex/
+```
 
 Data directory:
 
+```bash
     ~/.local/share/CineIndex/
+```
 
 Actual files:
 
@@ -64,8 +68,9 @@ Actual files:
 
 Config & data (Apple merges them):
 
+```zsh
     ~/Library/Application Support/CineIndex/
-
+```
 Files:
 
 - ~/Library/Application Support/CineIndex/config.json  
@@ -77,11 +82,14 @@ Files:
 
 Config:
 
+```powershell
     %APPDATA%\Fahim Ahmed\CineIndex\
-
+```
 Data:
 
+```powershell
     %LOCALAPPDATA%\Fahim Ahmed\CineIndex\
+```
 
 Files:
 
@@ -128,11 +136,15 @@ Playback events are recorded by `cineindex-history.lua`, which MPV loads automat
 
 CineIndex sets this environment variable when launching MPV:
 
+```python
     CINEINDEX_HISTORY_PATH=/path/to/data/cineindex-mpv-events.log
+```
 
 Each played media generates a JSON line like:
 
+```json
     {"Name":"Movie Title","Url":"http://server/file.mkv","Time":"2024-03-01 21:42:10"}
+```
 
 This is used to populate the in-app **Watch History** menu and resume playback.
 
