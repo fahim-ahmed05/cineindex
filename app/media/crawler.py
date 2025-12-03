@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable, Optional, List, Tuple
-from pathlib import Path
 import time
 
 import requests
@@ -30,7 +29,7 @@ def normalize_root_url(url: str) -> str:
     return url.rstrip("/") + "/"
 
 
-def load_root_configs(raw_roots: Iterable[dict], backend_root: Path) -> List[RootConfig]:
+def load_root_configs(raw_roots: Iterable[dict]) -> List[RootConfig]:
     """
     Build RootConfig objects from roots.json entries.
 
