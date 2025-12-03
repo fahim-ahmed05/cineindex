@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-import subprocess
-import tempfile
 import os
 import re
 import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from urllib.parse import urlparse
+
 from colorama import Fore, Style, init
 
-from app.db import init_db, get_conn, ROOT
+from app.db import init_db, get_conn, CONFIG_DIR, DATA_DIR
 from app.media.crawler import (
     load_root_configs,
     load_crawl_config,
@@ -24,10 +25,18 @@ from app.media.search import (
 )
 from app.media.history import get_recent_history
 
+# Path to this module's directory (the installed package location)
+HERE = Path(__file__).resolve().parent
+
 init(autoreset=True)
 
-CONFIG_JSON = ROOT / "config.json"
-ROOTS_JSON = ROOT / "roots.json"
+# Config files now live in an OS-appropriate config directory:
+# - Linux:  ~/.config/CineIndex/
+# - macOS:  ~/Library/Application Support/CineIndex/
+# - Windows: %LOCALAPPDATA%\Fahim Ahmed\CineIndex\
+CONFIG_JSON = CONFIG_DIR / "config.json"
+ROOTS_JSON = CONFIG_DIR / "roots.json"
+
 EPISODE_REGEX = re.compile(r"[sS](\d{1,2})[ ._-]*[eE](\d{1,3})")
 
 
@@ -70,6 +79,8 @@ _________ .__              .___            .___
 def ensure_config_files() -> None:
     created_any = False
 
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
     if not ROOTS_JSON.exists():
         demo_roots = [{"url": "http://example-server/movies/", "tag": "Movies"}]
 
@@ -86,7 +97,7 @@ def ensure_config_files() -> None:
             "mpv_args": [
                 "--save-position-on-quit",
                 "--fullscreen",
-                "--watch-later-options=start,volume,mute",
+                "--watch-later-options=start",
             ],
         }
         CONFIG_JSON.write_text(json.dumps(demo_cfg, indent=2), encoding="utf-8")
@@ -201,8 +212,11 @@ def play_entry(entry: MediaEntry, conn) -> None:
     """
     Play a single entry or a series playlist with mpv.
     Honors mpv_args from config.json and loads cineindex-history.lua if present.
+
+    The Lua script, when loaded, writes JSONL history to a log file whose path is
+    communicated via the CINEINDEX_HISTORY_PATH environment variable.
     """
-    script_path = ROOT / "cineindex-history.lua"
+    script_path = HERE / "cineindex-history.lua"
     script_arg = None
     if script_path.exists():
         script_arg = f"--script={script_path.as_posix()}"
@@ -211,6 +225,14 @@ def play_entry(entry: MediaEntry, conn) -> None:
             Fore.YELLOW
             + f"[PLAY] Warning: {script_path} not found; history Lua script will not run."
         )
+
+    # History log path in the data directory (not hidden, since it's in app data)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    history_file = DATA_DIR / "cineindex-mpv-events.log"
+
+    # Prepare environment for mpv, injecting history path
+    env = os.environ.copy()
+    env["CINEINDEX_HISTORY_PATH"] = str(history_file)
 
     cfg = load_config()
     mpv_args = cfg.get("mpv_args", [])
@@ -228,7 +250,7 @@ def play_entry(entry: MediaEntry, conn) -> None:
 
         print(Fore.CYAN + f"\n[PLAY] Running: " + Fore.YELLOW + " ".join(cmd))
         try:
-            subprocess.run(cmd)
+            subprocess.run(cmd, env=env)
         except FileNotFoundError:
             print(
                 Fore.RED
@@ -256,7 +278,7 @@ def play_entry(entry: MediaEntry, conn) -> None:
         cmd.append(entry.url)
         print(Fore.CYAN + f"\n[PLAY] Fallback: " + Fore.YELLOW + " ".join(cmd))
         try:
-            subprocess.run(cmd)
+            subprocess.run(cmd, env=env)
         except Exception as e2:
             print(Fore.RED + f"  !! Error launching mpv fallback: {e2}")
         else:
@@ -271,7 +293,7 @@ def play_entry(entry: MediaEntry, conn) -> None:
 
     print(Fore.CYAN + f"\n[PLAY] Running: " + Fore.YELLOW + " ".join(cmd))
     try:
-        subprocess.run(cmd)
+        subprocess.run(cmd, env=env)
     except FileNotFoundError:
         print(
             Fore.RED
@@ -383,7 +405,7 @@ def build_index() -> None:
         print(Fore.RED + "[BUILD] No roots configured in roots.json.\n")
         return
     cfg_raw = load_config()
-    root_cfgs = load_root_configs(roots_raw, ROOT)
+    root_cfgs = load_root_configs(roots_raw)
     crawl_cfg = load_crawl_config(cfg_raw)
     conn = get_conn()
     try:
@@ -406,7 +428,7 @@ def update_index() -> None:
         print(Fore.RED + "[UPDATE] No roots configured in roots.json.\n")
         return
     cfg_raw = load_config()
-    root_cfgs = load_root_configs(roots_raw, ROOT)
+    root_cfgs = load_root_configs(roots_raw)
     crawl_cfg = load_crawl_config(cfg_raw)
     conn = get_conn()
     try:
