@@ -1,80 +1,149 @@
 # CineIndex
 
-CineIndex is a high-performance, terminal-based media indexer and browser for directory-style web servers (like Apache and h5ai).  
+CineIndex is a high-performance, terminal-based media indexer and browser for directory-style web servers (Apache-style, h5ai, autoindex, etc.).
 
+## 🎬 Features
 
-## Features
+- ⚡ Fast crawler — Scans directory-style servers and builds a local SQLite index  
+- 🔄 Incremental updates — Re-indexes only changed directories  
+- 🔍 Fuzzy search (fzf-style) — Handles 200k+ entries instantly  
+- 🎥 MPV integration — Stream directly with resume & playlist support  
+- 📝 Watch history — Tracks recently watched media  
+- ⬇️ Download manager — Queue multiple aria2c downloads  
+- ⚙️ Configurable — Extensions, blocked folders, mpv args, download dir  
+- 🖥️ TUI menu — Build/Update/Search/History/Download options  
 
-- **Fast crawler** — Scans directory-style servers and builds a local SQLite index.  
-- **Incremental updates** — Detects changed directories and updates only where needed.  
-- **Fuzzy search (fzf-style)** — Quickly find movies or shows from 200k+ entries.  
-- **MPV integration** — Streams directly using `mpv` with resume and playlist support.  
-- **Watch history** — Tracks recently played items and series progress.  
-- **Download manager** — Queue multiple downloads via `aria2c`.  
-- **Configurable** — Define extensions, blocked folders, and mpv flags in `config.json`.  
-- **TUI menu** — Simple text interface with build/update/search/history options.
-
-
-## Requirements
+## 📦 Requirements
 
 - Python 3.10+
-- [MPV](https://mpv.io/)
-- [aria2c](https://aria2.github.io/)
-- [uv](https://github.com/astral-sh/uv) (or `pip`) for dependency management
+- mpv
+- aria2c
+- uv (recommended) or pip (if you know how to use it)
+
+## 📥 Installation
+
+Clone and install:
+
+    git clone git@github.com:fahim-ahmed05/cineindex.git
+    cd cineindex
+    uv sync
+    uv tool install .
+
+## ▶️ Run CineIndex
+
+Just type in a terminal:
+
+    cineindex
 
 
-## Installation
 
-```bash
-git clone https://github.com/yourusername/CineIndex.git
-cd CineIndex
-uv sync
-```
+# 📁 File Locations (Config, Database, History)
 
-## Run CineIndex
+CineIndex stores all persistent data in OS-appropriate application directories, managed via `platformdirs`.
 
-```bash
-uv run cineindex
-```
+## Linux
+
+Config directory:
+
+    ~/.config/CineIndex/
+
+Data directory:
+
+    ~/.local/share/CineIndex/
+
+Actual files:
+
+- ~/.config/CineIndex/config.json  
+- ~/.config/CineIndex/roots.json  
+- ~/.local/share/CineIndex/media_index.db  
+- ~/.local/share/CineIndex/cineindex-mpv-events.log  
+
+## macOS
+
+Config & data (Apple merges them):
+
+    ~/Library/Application Support/CineIndex/
+
+Files:
+
+- ~/Library/Application Support/CineIndex/config.json  
+- ~/Library/Application Support/CineIndex/roots.json  
+- ~/Library/Application Support/CineIndex/media_index.db  
+- ~/Library/Application Support/CineIndex/cineindex-mpv-events.log  
+
+## Windows
+
+Config:
+
+    %APPDATA%\Fahim Ahmed\CineIndex\
+
+Data:
+
+    %LOCALAPPDATA%\Fahim Ahmed\CineIndex\
+
+Files:
+
+- %APPDATA%\Fahim Ahmed\CineIndex\config.json  
+- %APPDATA%\Fahim Ahmed\CineIndex\roots.json  
+- %LOCALAPPDATA%\Fahim Ahmed\CineIndex\media_index.db  
+- %LOCALAPPDATA%\Fahim Ahmed\CineIndex\cineindex-mpv-events.log  
 
 
-## Configuration
 
-CineIndex creates demo `roots.json` and `config.json` on first run.
+# ⚙️ Configuration Files
 
-```jsonc
-// roots.json
-[
-  {
-    "url": "http://10.12.100.34/",
-    "tag": "FTP"
-  }
-]
+Created automatically on first run.
 
-// config.json
-{
-  "video_extensions": ["mp4", "mkv", "avi"],
-  "blocked_dirs": ["Ebooks", "Software"],
-  "mpv_args": ["--save-position-on-quit", "--fullscreen", "--watch-later-options=start,volume,mute"],
-  "download_dir": ""
-}
-```
+## Example roots.json
+
+    [
+      {
+        "url": "http://10.12.100.34/",
+        "tag": "FTP"
+      }
+    ]
+
+## Example config.json
+
+    {
+      "video_extensions": ["mp4", "mkv", "avi"],
+      "blocked_dirs": ["Ebooks", "Software"],
+      "mpv_args": [
+        "--save-position-on-quit",
+        "--fullscreen",
+        "--watch-later-options=start"
+      ],
+      "download_dir": ""
+    }
 
 
-## Watch History
 
-MPV logs playback events through a built-in Lua script (`cineindex-history.lua`)
-so you can easily resume your last watched shows and track series progress.
+# 🎞️ Watch History
+
+Playback events are recorded by `cineindex-history.lua`, which MPV loads automatically.
+
+CineIndex sets this environment variable when launching MPV:
+
+    CINEINDEX_HISTORY_PATH=/path/to/data/cineindex-mpv-events.log
+
+Each played media generates a JSON line like:
+
+    {"Name":"Movie Title","Url":"http://server/file.mkv","Time":"2024-03-01 21:42:10"}
+
+This is used to populate the in-app **Watch History** menu and resume playback.
 
 
-## Support
 
-If you run into any problems or have suggestions, please report them on the GitHub page.
+# ☕ Support
 
-If you like this tool, consider buying me a coffee.
+If you find CineIndex helpful, consider supporting development:
 
 <a href="https://www.buymeacoffee.com/fahim.ahmed" target="_blank">
   <img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" 
-       alt="Buy Me A Coffee" 
-       style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5); -webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5);" />
+       alt="Buy Me A Coffee"
+       style="height: 41px !important; width: 174px !important; box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5);" />
 </a>
+
+
+
+Enjoy CineIndex!
