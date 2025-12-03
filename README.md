@@ -1,6 +1,6 @@
 # CineIndex
 
-CineIndex is a high-performance, terminal-based media indexer and browser for directory-style web servers (Apache-style, h5ai, autoindex, etc.).
+CineIndex is a high-performance, terminal-based media indexer and browser for directory-style web servers.
 
 ### 🎬 Features
 
