@@ -17,7 +17,7 @@ homepage = "https://github.com/fahim-ahmed05/CineIndex"
 repository = "https://github.com/fahim-ahmed05/CineIndex"
 
 [project.scripts]
-cineindex = "main:main"
+cineindex = "app.main:main"
 
 [build-system]
 requires = ["hatchling"]
