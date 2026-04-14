@@ -26,20 +26,17 @@ CineIndex is a high-performance, terminal-based media indexer and browser for di
 
 ### 📥 Installation
 
-Clone and install:
+Install:
 
 ```bash
-    git clone git@github.com:fahim-ahmed05/cineindex.git
-    cd cineindex
-    uv sync
-    uv tool install .
+uv tool install git+https://github.com/fahim-ahmed05/cineindex.git
 ```
 ### ▶️ Run CineIndex
 
 Just type in a terminal:
 
 ```bash
-    cineindex
+cineindex
 ```
 
 
@@ -52,25 +49,25 @@ CineIndex stores all persistent data in OS-appropriate application directories, 
 Config directory:
 
 ```bash
-    ~/.config/CineIndex/
+~/.config/CineIndex/
 ```
 
 Data directory:
 
 ```bash
-    ~/.local/share/CineIndex/
+~/.local/share/CineIndex/
 ```
 
 Actual files:
 
 ```bash
-    ~/.config/CineIndex/
-    ├── config.json  
-    └── roots.json  
+~/.config/CineIndex/
+├── config.json  
+└── roots.json  
 
-    ~/.local/share/CineIndex/
-    ├── media_index.db  
-    └── cineindex-mpv-events.log  
+~/.local/share/CineIndex/
+├── media_index.db  
+└── cineindex-mpv-events.log  
 ```
 
 #### MacOS
@@ -78,16 +75,16 @@ Actual files:
 Config & data (Apple merges them):
 
 ```zsh
-    ~/Library/Application Support/CineIndex/
+~/Library/Application Support/CineIndex/
 ```
 Files:
 
 ```zsh
-    ~/Library/Application Support/CineIndex/
-    ├── config.json  
-    ├── roots.json  
-    ├── media_index.db  
-    └── cineindex-mpv-events.log  
+~/Library/Application Support/CineIndex/
+├── config.json  
+├── roots.json  
+├── media_index.db  
+└── cineindex-mpv-events.log  
 ```
 
 #### Windows
@@ -95,17 +92,17 @@ Files:
 Config & data:
 
 ```powershell
-    $env:LocalAppData\CineIndex\CineIndex\
+$env:LocalAppData\CineIndex\CineIndex\
 ```
 
 Files:
 
 ```pwsh
-    $env:LocalAppData\CineIndex\CineIndex\
-    ├── config.json  
-    ├── roots.json  
-    ├── media_index.db  
-    └── cineindex-mpv-events.log  
+$env:LocalAppData\CineIndex\CineIndex\
+├── config.json  
+├── roots.json  
+├── media_index.db  
+└── cineindex-mpv-events.log  
 ```
 
 ### ⚙️ Configuration Files
@@ -115,27 +112,27 @@ Created automatically on first run.
 #### Example roots.json
 
 ```json
-    [
-      {
-        "url": "http://10.12.100.34/",
-        "tag": "FTP"
-      }
-    ]
+[
+  {
+    "url": "http://10.12.100.34/",
+    "tag": "FTP"
+  }
+]
 ```
 
 #### Example config.json
 
 ```json
-    {
-      "video_extensions": ["mp4", "mkv", "avi"],
-      "blocked_dirs": ["Ebooks", "Software", "Games"],
-      "mpv_args": [
-        "--save-position-on-quit",
-        "--fullscreen",
-        "--watch-later-options=start"
-      ],
-      "download_dir": ""
-    }
+{
+  "video_extensions": ["mp4", "mkv", "avi"],
+  "blocked_dirs": ["Ebooks", "Software", "Games"],
+  "mpv_args": [
+    "--save-position-on-quit",
+    "--fullscreen",
+    "--watch-later-options=start"
+  ],
+  "download_dir": ""
+}
 ```
 
 ### 🎞️ Watch History
@@ -145,13 +142,13 @@ Playback events are recorded by `cineindex-history.lua`, which MPV loads automat
 CineIndex sets this environment variable when launching MPV:
 
 ```python
-    CINEINDEX_HISTORY_PATH=/path/to/data/cineindex-mpv-events.log
+CINEINDEX_HISTORY_PATH=/path/to/data/cineindex-mpv-events.log
 ```
 
 Each played media generates a JSON line like:
 
 ```json
-    {"Name":"Movie Title","Url":"http://server/file.mkv","Time":"2024-03-01 21:42:10"}
+{"Name":"Movie Title","Url":"http://server/file.mkv","Time":"2024-03-01 21:42:10"}
 ```
 
 This is used to populate the in-app **Watch History** menu and resume playback.
@@ -164,8 +161,8 @@ If you find CineIndex helpful, consider supporting development:
 
 <a href="https://www.buymeacoffee.com/fahim.ahmed" target="_blank">
   <img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" 
-       alt="Buy Me A Coffee"
-       style="height: 41px !important; width: 174px !important; box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5);" />
+   alt="Buy Me A Coffee"
+   style="height: 41px !important; width: 174px !important; box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5);" />
 </a>
 
 
