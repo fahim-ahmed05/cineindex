@@ -141,6 +141,78 @@ def build_root_tag_map() -> dict[str, str]:
     return mapping
 
 
+def _fzf_binary() -> str | None:
+    return shutil.which("fzf") or shutil.which("fzf.exe")
+
+
+def _pick_with_fzf(
+    entries: list[MediaEntry],
+    root_tags: dict[str, str],
+    *,
+    multi: bool = False,
+    prompt: str = "Select> ",
+) -> list[MediaEntry]:
+    fzf_bin = _fzf_binary()
+    if not fzf_bin or not entries:
+        return []
+
+    index_lookup: dict[str, MediaEntry] = {}
+    lines: list[str] = []
+    for index, entry in enumerate(entries, start=1):
+        display_root = root_tags.get(entry.root, entry.root)
+        lines.append(f"{index}\t{entry.display_text}\t[{display_root}] {entry.path}")
+        index_lookup[str(index)] = entry
+
+    cmd = [
+        fzf_bin,
+        "--ansi",
+        "--delimiter",
+        "\t",
+        "--with-nth",
+        "2,3,4",
+        "--prompt",
+        prompt,
+        "--height",
+        "70%",
+        "--border",
+        "--layout=reverse",
+    ]
+    if multi:
+        cmd.append("--multi")
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            input="\n".join(lines) + "\n",
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+        )
+    except Exception as e:
+        print(
+            Fore.YELLOW
+            + f"[SEARCH] fzf unavailable, falling back to the built-in picker: {e}"
+        )
+        return []
+
+    if proc.returncode != 0 or not proc.stdout:
+        return []
+
+    selected: list[MediaEntry] = []
+    seen: set[str] = set()
+    for line in proc.stdout.splitlines():
+        idx = line.split("\t", 1)[0].strip()
+        if not idx or idx in seen:
+            continue
+        if idx not in index_lookup:
+            continue
+        seen.add(idx)
+        selected.append(index_lookup[idx])
+
+    return selected
+
+
 # ---------- Playlist helpers (series handling) ----------
 
 
@@ -557,8 +629,24 @@ def search_index() -> None:
             print(Fore.YELLOW + "Build the index first.\n")
             return
 
-        choices = build_choice_list(entries)
         root_tags = build_root_tag_map()
+
+        if _fzf_binary():
+            print(
+                Fore.CYAN
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select.\n"
+            )
+
+            while True:
+                picked = _pick_with_fzf(
+                    entries, root_tags, multi=False, prompt="Stream> "
+                )
+                if not picked:
+                    print()
+                    return
+                play_entry(picked[0], conn)
+
+        choices = build_choice_list(entries)
 
         def render_results(results: list[tuple[MediaEntry, float]]) -> None:
             print()
@@ -578,6 +666,19 @@ def search_index() -> None:
         while True:
             # If we have sticky results from a previous play, re-show them first.
             if last_results:
+                if _fzf_binary():
+                    picked = _pick_with_fzf(
+                        last_results,
+                        root_tags,
+                        multi=False,
+                        prompt="Stream> ",
+                    )
+                    if not picked:
+                        last_results = None
+                        continue
+                    play_entry(picked[0][0], conn)
+                    continue
+
                 render_results(last_results)
                 # Same selection loop, but returns to query when ENTER is pressed.
                 while True:
@@ -621,6 +722,20 @@ def search_index() -> None:
 
             # Show and enter selection loop; after play, keep results sticky
             last_results = results
+
+            if _fzf_binary():
+                picked = _pick_with_fzf(
+                    results,
+                    root_tags,
+                    multi=False,
+                    prompt="Stream> ",
+                )
+                if not picked:
+                    last_results = None
+                    continue
+                play_entry(picked[0][0], conn)
+                continue
+
             render_results(results)
 
             while True:
@@ -707,8 +822,28 @@ def download_index() -> None:
             print(Fore.YELLOW + "No media indexed yet. Build the index first.\n")
             return
 
-        choices = build_choice_list(entries)
         root_tags = build_root_tag_map()
+
+        if _fzf_binary():
+            print(
+                Fore.CYAN
+                + "[DL] Using fzf picker. Type to filter, Tab to mark, Enter to download.\n"
+            )
+
+            while True:
+                picked = _pick_with_fzf(
+                    entries, root_tags, multi=True, prompt="Download> "
+                )
+                if not picked:
+                    print()
+                    return
+
+                for entry in picked:
+                    download_entry(entry)
+                print()
+                return
+
+        choices = build_choice_list(entries)
 
         while True:
             pattern = input(
@@ -723,6 +858,21 @@ def download_index() -> None:
             )
             if not results:
                 print(Fore.RED + "  No matches.\n")
+                continue
+
+            if _fzf_binary():
+                picked = _pick_with_fzf(
+                    results,
+                    root_tags,
+                    multi=True,
+                    prompt="Download> ",
+                )
+                if not picked:
+                    continue
+
+                for entry, _ in picked:
+                    download_entry(entry)
+                print()
                 continue
 
             print()
