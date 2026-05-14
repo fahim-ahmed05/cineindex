@@ -486,7 +486,6 @@ def build_index() -> None:
         purge_deleted_roots(conn, active_roots)
 
         for index, rc in enumerate(root_cfgs, start=1):
-            remaining = total_roots - index
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
             before_dirs = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
@@ -508,9 +507,9 @@ def build_index() -> None:
             print(
                 Fore.GREEN
                 + (
-                    f"[BUILD] {index}/{total_roots} done, remaining={remaining} | "
-                    f"root={rc.url} | +dirs={after_dirs - before_dirs}, "
-                    f"+files={after_media - before_media}, time={result.elapsed_seconds:.1f}s"
+                    f"[BUILD] {index}/{total_roots} done | root={rc.url} | "
+                    f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
+                    f"time={result.elapsed_seconds:.1f}s"
                 )
             )
 
@@ -553,7 +552,6 @@ def update_index() -> None:
         purge_deleted_roots(conn, active_roots)
 
         for index, rc in enumerate(root_cfgs, start=1):
-            remaining = total_roots - index
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
             before_dirs = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
@@ -575,9 +573,9 @@ def update_index() -> None:
             print(
                 Fore.GREEN
                 + (
-                    f"[UPDATE] {index}/{total_roots} done, remaining={remaining} | "
-                    f"root={rc.url} | +dirs={after_dirs - before_dirs}, "
-                    f"+files={after_media - before_media}, time={result.elapsed_seconds:.1f}s"
+                    f"[UPDATE] {index}/{total_roots} done | root={rc.url} | "
+                    f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
+                    f"time={result.elapsed_seconds:.1f}s"
                 )
             )
 
