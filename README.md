@@ -22,6 +22,7 @@ CineIndex is a high-performance, terminal-based media indexer and browser for di
 - Python 3.10+
 - mpv
 - aria2c
+- fzf (optional, but recommended)
 - uv (recommended) or pip (if you know how to use it)
 
 ### 📥 Installation
