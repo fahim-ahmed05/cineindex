@@ -678,7 +678,7 @@ def search_index() -> None:
         if _fzf_binary():
             print(
                 Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Enter to select.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
             )
 
             while True:
@@ -686,7 +686,7 @@ def search_index() -> None:
                     entries,
                     lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=False,
-                    prompt="Stream> ",
+                    prompt="Search: ",
                 )
                 if not picked:
                     print()
@@ -826,7 +826,7 @@ def show_history() -> None:
         if _fzf_binary():
             print(
                 Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Enter to select.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
             )
             picked = _pick_with_fzf(
                 history,
