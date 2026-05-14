@@ -151,10 +151,10 @@ def _fzf_binary() -> str | None:
 def _change_text(before: int, after: int, noun: str) -> str:
     delta = after - before
     if delta < 0:
-        return f"{noun}={before}→{after} (removed {-delta})"
+        return f"{noun}={before}→{after} (-{delta})"
     if delta > 0:
-        return f"{noun}={before}→{after} (added {delta})"
-    return f"{noun}={before}→{after} (no change)"
+        return f"{noun}={before}→{after} (+{delta})"
+    return f"{noun}={before}→{after}"
 
 
 def _pick_with_fzf(
@@ -162,7 +162,7 @@ def _pick_with_fzf(
     item_to_text: Callable[[T], str],
     *,
     multi: bool = False,
-    prompt: str = "Select> ",
+    prompt: str = "Search: ",
 ) -> list[T]:
     fzf_bin = _fzf_binary()
     if not fzf_bin or not items:
