@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
+from typing import Callable, TypeVar
 
 from colorama import Fore, Style, init
 
@@ -38,6 +39,8 @@ CONFIG_JSON = CONFIG_DIR / "config.json"
 ROOTS_JSON = CONFIG_DIR / "roots.json"
 
 EPISODE_REGEX = re.compile(r"[sS](\d{1,2})[ ._-]*[eE](\d{1,3})")
+
+T = TypeVar("T")
 
 
 # ---------- Utility ----------
@@ -146,22 +149,21 @@ def _fzf_binary() -> str | None:
 
 
 def _pick_with_fzf(
-    entries: list[MediaEntry],
-    root_tags: dict[str, str],
+    items: list[T],
+    item_to_text: Callable[[T], str],
     *,
     multi: bool = False,
     prompt: str = "Select> ",
-) -> list[MediaEntry]:
+) -> list[T]:
     fzf_bin = _fzf_binary()
-    if not fzf_bin or not entries:
+    if not fzf_bin or not items:
         return []
 
-    index_lookup: dict[str, MediaEntry] = {}
+    index_lookup: dict[str, T] = {}
     lines: list[str] = []
-    for index, entry in enumerate(entries, start=1):
-        display_root = root_tags.get(entry.root, entry.root)
-        lines.append(f"{index}\t{entry.display_text}\t[{display_root}] {entry.path}")
-        index_lookup[str(index)] = entry
+    for index, item in enumerate(items, start=1):
+        lines.append(f"{index}\t{item_to_text(item)}")
+        index_lookup[str(index)] = item
 
     cmd = [
         fzf_bin,
@@ -199,7 +201,7 @@ def _pick_with_fzf(
     if proc.returncode != 0 or not proc.stdout:
         return []
 
-    selected: list[MediaEntry] = []
+    selected: list[T] = []
     seen: set[str] = set()
     for line in proc.stdout.splitlines():
         idx = line.split("\t", 1)[0].strip()
@@ -637,7 +639,10 @@ def search_index() -> None:
 
             while True:
                 picked = _pick_with_fzf(
-                    entries, root_tags, multi=False, prompt="Stream> "
+                    entries,
+                    lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
+                    multi=False,
+                    prompt="Stream> ",
                 )
                 if not picked:
                     print()
@@ -666,15 +671,15 @@ def search_index() -> None:
             if last_results:
                 if _fzf_binary():
                     picked = _pick_with_fzf(
-                        last_results,
-                        root_tags,
+                        [entry for entry, _score in last_results],
+                        lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                         multi=False,
                         prompt="Stream> ",
                     )
                     if not picked:
                         last_results = None
                         continue
-                    play_entry(picked[0][0], conn)
+                    play_entry(picked[0], conn)
                     continue
 
                 render_results(last_results)
@@ -774,6 +779,20 @@ def show_history() -> None:
         root_tags = build_root_tag_map()
         print(Fore.MAGENTA + "\n=== CineIndex Watch History ===\n")
 
+        if _fzf_binary():
+            picked = _pick_with_fzf(
+                history,
+                lambda item: (
+                    f"{item[0].filename}\t[{root_tags.get(item[0].root, item[0].root)}]\t{item[1]}"
+                ),
+                multi=False,
+                prompt="History> ",
+            )
+            if picked:
+                play_entry(picked[0][0], conn)
+            print()
+            return
+
         for i in reversed(range(len(history))):
             entry, played_at = history[i]
             num = i + 1
@@ -830,7 +849,10 @@ def download_index() -> None:
 
             while True:
                 picked = _pick_with_fzf(
-                    entries, root_tags, multi=True, prompt="Download> "
+                    entries,
+                    lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
+                    multi=True,
+                    prompt="Download> ",
                 )
                 if not picked:
                     print()
@@ -860,15 +882,15 @@ def download_index() -> None:
 
             if _fzf_binary():
                 picked = _pick_with_fzf(
-                    results,
-                    root_tags,
+                    [entry for entry, _score in results],
+                    lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=True,
                     prompt="Download> ",
                 )
                 if not picked:
                     continue
 
-                for entry, _ in picked:
+                for entry in picked:
                     download_entry(entry)
                 print()
                 continue
