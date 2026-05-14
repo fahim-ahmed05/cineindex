@@ -431,7 +431,7 @@ def download_entry(entry: MediaEntry) -> None:
 # ---------- Root purge helper ----------
 
 
-def purge_deleted_roots(conn, active_root_urls: set[str]) -> None:
+def purge_deleted_roots(conn, active_root_urls: set[str]) -> tuple[int, int]:
     """
     Remove all media/dirs rows whose 'root' is not present in roots.json anymore.
     """
@@ -450,16 +450,23 @@ def purge_deleted_roots(conn, active_root_urls: set[str]) -> None:
 
     to_remove = existing_roots - active_root_urls
     if not to_remove:
-        return
+        return 0, 0
 
     print(Fore.YELLOW + "[CLEAN] Removing roots no longer present in roots.json:")
+    removed_dirs = 0
+    removed_media = 0
     for root in sorted(to_remove):
         print(Fore.YELLOW + f"  - {root}")
+        cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (root,))
+        removed_dirs += cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (root,))
+        removed_media += cur.fetchone()[0]
         cur.execute("DELETE FROM media WHERE root = ?", (root,))
         cur.execute("DELETE FROM dirs  WHERE root = ?", (root,))
 
     conn.commit()
     print()
+    return removed_dirs, removed_media
 
 
 # ---------- Index operations ----------
@@ -486,6 +493,14 @@ def build_index() -> None:
         cur.execute("SELECT COUNT(*) FROM media")
         old_media_total = cur.fetchone()[0]
         purge_deleted_roots(conn, active_roots)
+
+        def _change_text(before: int, after: int, noun: str) -> str:
+            delta = after - before
+            if delta < 0:
+                return f"{noun}={before}→{after} (removed {-delta})"
+            if delta > 0:
+                return f"{noun}={before}→{after} (added {delta})"
+            return f"{noun}={before}→{after} (no change)"
 
         for index, rc in enumerate(root_cfgs, start=1):
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
@@ -551,7 +566,7 @@ def update_index() -> None:
         old_dirs_total = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM media")
         old_media_total = cur.fetchone()[0]
-        purge_deleted_roots(conn, active_roots)
+        removed_dirs, removed_media = purge_deleted_roots(conn, active_roots)
 
         for index, rc in enumerate(root_cfgs, start=1):
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
@@ -576,7 +591,8 @@ def update_index() -> None:
                 Fore.GREEN
                 + (
                     f"[UPDATE] {index}/{total_roots} done | root={rc.url} | "
-                    f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
+                    f"{_change_text(before_dirs, after_dirs, 'dirs')}, "
+                    f"{_change_text(before_media, after_media, 'files')}, "
                     f"time={result.elapsed_seconds:.1f}s"
                 )
             )
