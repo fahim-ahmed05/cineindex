@@ -55,7 +55,7 @@ def _path_from_root(root_url: str, dir_url: str) -> str:
     r = normalize_root_url(root_url)
     if not dir_url.startswith(r):
         return "/"
-    rel = dir_url[len(r):].rstrip("/")
+    rel = dir_url[len(r) :].rstrip("/")
     return "/" + rel if rel else "/"
 
 
@@ -73,7 +73,7 @@ def _should_keep_file(filename: str, cfg: CrawlConfig) -> bool:
     dot = lower.rfind(".")
     if dot == -1:
         return False
-    ext = lower[dot + 1:]
+    ext = lower[dot + 1 :]
     return ext in cfg.video_exts
 
 
@@ -101,6 +101,7 @@ def crawl_root(
     cfg: CrawlConfig,
     conn=None,
     incremental: bool = False,
+    summary_only: bool = False,
 ) -> None:
     """
     Crawl a single root directory and update the local database.
@@ -122,11 +123,12 @@ def crawl_root(
         own_conn = True
 
     session = _make_session(root_cfg)
+    verbose = not summary_only
 
     try:
         cur = conn.cursor()
 
-        if not incremental:
+        if not incremental and verbose:
             print(Fore.CYAN + f"[BUILD] Clearing existing index for {root_cfg.url}")
             cur.execute("DELETE FROM media WHERE root = ?", (root_cfg.url,))
             cur.execute("DELETE FROM dirs WHERE root = ?", (root_cfg.url,))
@@ -137,7 +139,8 @@ def crawl_root(
         inserted_files = 0
         skipped_dirs = 0
 
-        print(Fore.MAGENTA + f"[CRAWL] Starting crawl for {root_cfg.url}")
+        if verbose:
+            print(Fore.MAGENTA + f"[CRAWL] Starting crawl for {root_cfg.url}")
         t0 = time.time()
 
         while queue:
@@ -145,14 +148,15 @@ def crawl_root(
             rel_path = _path_from_root(root_cfg.url, dir_url)
 
             if _is_blocked_dir(rel_path, cfg):
-                print(Fore.YELLOW + f"[SKIP] Blocked dir: {rel_path}")
+                if verbose:
+                    print(Fore.YELLOW + f"[SKIP] Blocked dir: {rel_path}")
                 continue
 
             html = _fetch_page(session, dir_url)
             if html is None:
                 continue
 
-            parsed = parse_directory_page(html, dir_url)
+            parsed = parse_directory_page(html, dir_url, verbose=verbose)
             dir_modified = parsed.dir_modified
 
             unchanged = False
@@ -217,20 +221,21 @@ def crawl_root(
 
             processed_dirs += 1
 
-            # Status output
-            print(Fore.CYAN + f"[DIR] {dir_url}")
-            if unchanged and incremental:
-                print(
-                    Fore.YELLOW
-                    + "  - unchanged (timestamp match), skipping files; descending into subdirs."
-                )
-            else:
-                print(
-                    Fore.GREEN
-                    + f"  - indexed {batch_files} files"
-                    + Fore.YELLOW
-                    + f", {len(parsed.subdirs)} subdirs"
-                )
+            # Status output (verbose only)
+            if verbose:
+                print(Fore.CYAN + f"[DIR] {dir_url}")
+                if unchanged and incremental:
+                    print(
+                        Fore.YELLOW
+                        + "  - unchanged (timestamp match), skipping files; descending into subdirs."
+                    )
+                else:
+                    print(
+                        Fore.GREEN
+                        + f"  - indexed {batch_files} files"
+                        + Fore.YELLOW
+                        + f", {len(parsed.subdirs)} subdirs"
+                    )
 
             # Always descend into subdirectories, even if this dir was unchanged
             for d in parsed.subdirs:
@@ -238,19 +243,25 @@ def crawl_root(
 
             if processed_dirs % 20 == 0:
                 conn.commit()
-                print(
-                    Style.DIM
-                    + f"  ...progress: {processed_dirs} dirs processed, "
-                    f"{skipped_dirs} skipped as unchanged..."
-                )
+                if verbose:
+                    print(
+                        Style.DIM + f"  ...progress: {processed_dirs} dirs processed, "
+                        f"{skipped_dirs} skipped as unchanged..."
+                    )
 
         conn.commit()
         elapsed = time.time() - t0
-        print(
-            Fore.MAGENTA
-            + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, "
-            f"skipped={skipped_dirs}, files={inserted_files}, time={elapsed:.1f}s\n"
-        )
+        # Always print a concise summary. When in verbose mode we include skipped count.
+        if verbose:
+            print(
+                Fore.MAGENTA + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, "
+                f"skipped={skipped_dirs}, files={inserted_files}, time={elapsed:.1f}s\n"
+            )
+        else:
+            print(
+                Fore.MAGENTA
+                + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, files={inserted_files}, time={elapsed:.1f}s\n"
+            )
     finally:
         if own_conn:
             conn.close()

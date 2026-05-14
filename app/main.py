@@ -53,19 +53,14 @@ def separator_line() -> str:
 
 
 def print_banner() -> None:
-    banner = (
-        Fore.MAGENTA
-        + Style.BRIGHT
-        + r"""
+    banner = Fore.MAGENTA + Style.BRIGHT + r"""
 _________ .__              .___            .___             
 \_   ___ \|__| ____   ____ |   | ____    __| _/____ ___  ___
 /    \  \/|  |/    \_/ __ \|   |/    \  / __ |/ __ \\  \/  /
 \     \___|  |   |  \  ___/|   |   |  \/ /_/ \  ___/ >    < 
  \______  /__|___|  /\___  >___|___|  /\____ |\___  >__/\_ \
         \/        \/     \/         \/      \/    \/      \/
-"""
-        + Style.RESET_ALL
-    )
+""" + Style.RESET_ALL
     print(banner)
     print(
         Fore.CYAN
@@ -413,7 +408,7 @@ def build_index() -> None:
         purge_deleted_roots(conn, active_roots)
 
         for rc in root_cfgs:
-            crawl_root(rc, crawl_cfg, conn=conn, incremental=False)
+            crawl_root(rc, crawl_cfg, conn=conn, incremental=False, summary_only=True)
     finally:
         conn.close()
     print(Fore.GREEN + "[BUILD] Done.\n")
@@ -436,7 +431,7 @@ def update_index() -> None:
         purge_deleted_roots(conn, active_roots)
 
         for rc in root_cfgs:
-            crawl_root(rc, crawl_cfg, conn=conn, incremental=True)
+            crawl_root(rc, crawl_cfg, conn=conn, incremental=True, summary_only=True)
     finally:
         conn.close()
     print(Fore.GREEN + "[UPDATE] Done.\n")

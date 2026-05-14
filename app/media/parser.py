@@ -46,8 +46,11 @@ def _decode_name(text: str) -> str:
 # ---------- Parsers for Different Directory Styles ----------
 
 
-def _parse_generic_table(soup: BeautifulSoup, base_url: str) -> ParsedPage:
-    print(Fore.CYAN + f"[PARSER] Using generic directory parser for {base_url}")
+def _parse_generic_table(
+    soup: BeautifulSoup, base_url: str, verbose: bool = True
+) -> ParsedPage:
+    if verbose:
+        print(Fore.CYAN + f"[PARSER] Using generic directory parser for {base_url}")
     table = soup.find("table")
     if not table:
         print(Fore.YELLOW + "  [WARN] No <table> found in generic parser.")
@@ -91,25 +94,31 @@ def _parse_generic_table(soup: BeautifulSoup, base_url: str) -> ParsedPage:
         else:
             files.append(ParsedFileEntry(decoded_name, url, modified, size))
 
-    print(
-        Fore.GREEN
-        + f"  [OK] Parsed {len(subdirs)} subdirs, {len(files)} files (generic)."
-    )
+    if verbose:
+        print(
+            Fore.GREEN
+            + f"  [OK] Parsed {len(subdirs)} subdirs, {len(files)} files (generic)."
+        )
 
     dir_modified = max(times) if times else None
     return ParsedPage(dir_modified, subdirs, files)
 
 
-def _parse_h5ai_fallback(soup: BeautifulSoup, base_url: str) -> ParsedPage:
-    print(Fore.CYAN + f"[PARSER] Using h5ai fallback parser for {base_url}")
+def _parse_h5ai_fallback(
+    soup: BeautifulSoup, base_url: str, verbose: bool = True
+) -> ParsedPage:
+    if verbose:
+        print(Fore.CYAN + f"[PARSER] Using h5ai fallback parser for {base_url}")
     fb = soup.find("div", id="fallback")
     if not fb:
-        print(Fore.YELLOW + "  [WARN] No fallback <div> found.")
+        if verbose:
+            print(Fore.YELLOW + "  [WARN] No fallback <div> found.")
         return ParsedPage(None, [], [])
 
     table = fb.find("table")
     if not table:
-        print(Fore.YELLOW + "  [WARN] No table inside fallback <div>.")
+        if verbose:
+            print(Fore.YELLOW + "  [WARN] No table inside fallback <div>.")
         return ParsedPage(None, [], [])
 
     subdirs: List[ParsedDirEntry] = []
@@ -150,20 +159,25 @@ def _parse_h5ai_fallback(soup: BeautifulSoup, base_url: str) -> ParsedPage:
         else:
             files.append(ParsedFileEntry(decoded_name, url, modified, size))
 
-    print(
-        Fore.GREEN
-        + f"  [OK] Parsed {len(subdirs)} subdirs, {len(files)} files (h5ai fallback)."
-    )
+    if verbose:
+        print(
+            Fore.GREEN
+            + f"  [OK] Parsed {len(subdirs)} subdirs, {len(files)} files (h5ai fallback)."
+        )
 
     dir_modified = max(times) if times else None
     return ParsedPage(dir_modified, subdirs, files)
 
 
-def _parse_discovery_datatable(soup: BeautifulSoup, base_url: str) -> ParsedPage:
-    print(Fore.CYAN + f"[PARSER] Using discovery datatable parser for {base_url}")
+def _parse_discovery_datatable(
+    soup: BeautifulSoup, base_url: str, verbose: bool = True
+) -> ParsedPage:
+    if verbose:
+        print(Fore.CYAN + f"[PARSER] Using discovery datatable parser for {base_url}")
     table = soup.find("table", id="example")
     if not table:
-        print(Fore.YELLOW + "  [WARN] No <table id='example'> found.")
+        if verbose:
+            print(Fore.YELLOW + "  [WARN] No <table id='example'> found.")
         return ParsedPage(None, [], [])
 
     tbody = table.find("tbody") or table
@@ -202,10 +216,11 @@ def _parse_discovery_datatable(soup: BeautifulSoup, base_url: str) -> ParsedPage
         else:
             files.append(ParsedFileEntry(decoded_name, url, modified, size))
 
-    print(
-        Fore.GREEN
-        + f"  [OK] Parsed {len(subdirs)} subdirs, {len(files)} files (datatable)."
-    )
+    if verbose:
+        print(
+            Fore.GREEN
+            + f"  [OK] Parsed {len(subdirs)} subdirs, {len(files)} files (datatable)."
+        )
 
     dir_modified = max(times) if times else None
     return ParsedPage(dir_modified, subdirs, files)
@@ -214,7 +229,7 @@ def _parse_discovery_datatable(soup: BeautifulSoup, base_url: str) -> ParsedPage
 # ---------- Dispatcher ----------
 
 
-def parse_directory_page(html: str, base_url: str) -> ParsedPage:
+def parse_directory_page(html: str, base_url: str, verbose: bool = True) -> ParsedPage:
     """
     Detect which style of listing this is and parse accordingly.
     """
@@ -222,9 +237,9 @@ def parse_directory_page(html: str, base_url: str) -> ParsedPage:
 
     # Order matters: test the most specific patterns first
     if soup.find("div", id="fallback"):
-        return _parse_h5ai_fallback(soup, base_url)
+        return _parse_h5ai_fallback(soup, base_url, verbose=verbose)
 
     if soup.find("table", id="example"):
-        return _parse_discovery_datatable(soup, base_url)
+        return _parse_discovery_datatable(soup, base_url, verbose=verbose)
 
-    return _parse_generic_table(soup, base_url)
+    return _parse_generic_table(soup, base_url, verbose=verbose)
