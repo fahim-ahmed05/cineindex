@@ -163,7 +163,8 @@ def _pick_with_fzf(
     *,
     multi: bool = False,
     prompt: str = "Search: ",
-) -> list[T]:
+    initial_query: str | None = None,
+) -> tuple[list[T], str]:
     fzf_bin = _fzf_binary()
     if not fzf_bin or not items:
         return []
@@ -205,24 +206,32 @@ def _pick_with_fzf(
         ) as output_handle:
             output_file = output_handle.name
 
+        # Use --print-query so fzf prints the current query as the first line of
+        # output; this lets us restore it when re-opening the picker.
+        query_part = f'--query "{initial_query}" ' if initial_query else ""
+        print_query = "--print-query "
+        multi_part = "--multi " if multi else ""
+
         redirect_cmd = (
             f'"{fzf_bin}" --ansi --delimiter "\t" --with-nth "2,3,4" '
             f'--prompt "{prompt}" --height 70% --border --layout=reverse '
-            + ("--multi " if multi else "")
+            + query_part
+            + print_query
+            + multi_part
             + f'< "{input_file}" > "{output_file}"'
         )
 
         proc = subprocess.run(redirect_cmd, shell=True)
         if proc.returncode != 0:
-            return []
+            return [], initial_query or ""
 
         try:
-            selected_text = Path(output_file).read_text(encoding="utf-8").strip()
+            selected_text = Path(output_file).read_text(encoding="utf-8")
         except OSError:
-            return []
+            return [], initial_query or ""
 
-        if not selected_text:
-            return []
+        if not selected_text.strip():
+            return [], initial_query or ""
     except Exception as e:
         print(
             Fore.YELLOW
@@ -237,9 +246,13 @@ def _pick_with_fzf(
                 except OSError:
                     pass
 
+    # The first line is the printed query (from --print-query). Remaining lines
+    # are the selected items. Parse and return both.
+    lines_out = selected_text.splitlines()
+    last_query = lines_out[0] if lines_out else ""
     selected: list[T] = []
     seen: set[str] = set()
-    for line in selected_text.splitlines():
+    for line in lines_out[1:]:
         idx = line.split("\t", 1)[0].strip()
         if not idx or idx in seen:
             continue
@@ -248,7 +261,7 @@ def _pick_with_fzf(
         seen.add(idx)
         selected.append(index_lookup[idx])
 
-    return selected
+    return selected, last_query
 
 
 # ---------- Playlist helpers (series handling) ----------
@@ -436,7 +449,9 @@ def download_entry(entry: MediaEntry) -> None:
     try:
         dl_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        print(Fore.RED + f"[DOWNLOAD] Failed to create download directory {dl_dir}: {e}")
+        print(
+            Fore.RED + f"[DOWNLOAD] Failed to create download directory {dl_dir}: {e}"
+        )
         print(Fore.YELLOW + "     Falling back to current working directory.")
         dl_dir = Path.cwd()
 
@@ -453,7 +468,12 @@ def download_entry(entry: MediaEntry) -> None:
         entry.url,
     ]
 
-    print(Fore.CYAN + f"[DOWNLOAD] Running: " + Fore.YELLOW + " ".join(str(c) for c in cmd))
+    print(
+        Fore.CYAN
+        + f"[DOWNLOAD] Running: "
+        + Fore.YELLOW
+        + " ".join(str(c) for c in cmd)
+    )
     try:
         subprocess.run(cmd)
     except FileNotFoundError:
@@ -674,6 +694,8 @@ def search_index() -> None:
             return
 
         root_tags = build_root_tag_map()
+        last_query = ""
+        last_query: str = ""
 
         if _fzf_binary():
             print(
@@ -682,11 +704,12 @@ def search_index() -> None:
             )
 
             while True:
-                picked = _pick_with_fzf(
+                picked, last_query = _pick_with_fzf(
                     entries,
                     lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=False,
                     prompt="Search: ",
+                    initial_query=last_query,
                 )
                 if not picked:
                     print()
@@ -714,11 +737,12 @@ def search_index() -> None:
             # If we have sticky results from a previous play, re-show them first.
             if last_results:
                 if _fzf_binary():
-                    picked = _pick_with_fzf(
+                    picked, last_query = _pick_with_fzf(
                         [entry for entry, _score in last_results],
                         lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                         multi=False,
                         prompt="Stream> ",
+                        initial_query=last_query,
                     )
                     if not picked:
                         last_results = None
@@ -771,11 +795,12 @@ def search_index() -> None:
             last_results = results
 
             if _fzf_binary():
-                picked = _pick_with_fzf(
+                picked, last_query = _pick_with_fzf(
                     results,
                     root_tags,
                     multi=False,
                     prompt="Stream> ",
+                    initial_query=last_query,
                 )
                 if not picked:
                     last_results = None
@@ -828,7 +853,7 @@ def show_history() -> None:
                 Fore.CYAN
                 + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
             )
-            picked = _pick_with_fzf(
+            picked, _ = _pick_with_fzf(
                 history,
                 lambda item: (
                     f"{item[0].filename}\t[{root_tags.get(item[0].root, item[0].root)}]\t{item[1]}"
@@ -896,11 +921,12 @@ def download_index() -> None:
             )
 
             while True:
-                picked = _pick_with_fzf(
+                picked, last_query = _pick_with_fzf(
                     entries,
                     lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=True,
                     prompt="Search: ",
+                    initial_query=last_query,
                 )
                 if not picked:
                     print()
@@ -929,11 +955,12 @@ def download_index() -> None:
                 continue
 
             if _fzf_binary():
-                picked = _pick_with_fzf(
+                picked, last_query = _pick_with_fzf(
                     [entry for entry, _score in results],
                     lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=True,
                     prompt="Search: ",
+                    initial_query=last_query,
                 )
                 if not picked:
                     continue
