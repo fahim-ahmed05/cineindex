@@ -436,7 +436,7 @@ def download_entry(entry: MediaEntry) -> None:
     try:
         dl_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        print(Fore.RED + f"[DL] Failed to create download directory {dl_dir}: {e}")
+        print(Fore.RED + f"[DOWNLOAD] Failed to create download directory {dl_dir}: {e}")
         print(Fore.YELLOW + "     Falling back to current working directory.")
         dl_dir = Path.cwd()
 
@@ -453,7 +453,7 @@ def download_entry(entry: MediaEntry) -> None:
         entry.url,
     ]
 
-    print(Fore.CYAN + f"[DL] Running: " + Fore.YELLOW + " ".join(str(c) for c in cmd))
+    print(Fore.CYAN + f"[DOWNLOAD] Running: " + Fore.YELLOW + " ".join(str(c) for c in cmd))
     try:
         subprocess.run(cmd)
     except FileNotFoundError:
@@ -461,7 +461,7 @@ def download_entry(entry: MediaEntry) -> None:
     except Exception as e:
         print(Fore.RED + f"  !! Error launching aria2c: {e}")
     else:
-        print(Fore.GREEN + f"[DL] Finished: {dl_dir / entry.filename}\n")
+        print(Fore.GREEN + f"[DOWNLOAD] Finished: {dl_dir / entry.filename}\n")
 
 
 # ---------- Root purge helper ----------
@@ -817,7 +817,7 @@ def show_history() -> None:
     try:
         history = get_recent_history(conn)
         if not history:
-            print(Fore.YELLOW + "\n[HISTORY] No watch history yet.\n")
+            print(Fore.YELLOW + "\nNo watch history yet. Watch something first.\n")
             return
 
         root_tags = build_root_tag_map()
@@ -826,7 +826,7 @@ def show_history() -> None:
         if _fzf_binary():
             print(
                 Fore.CYAN
-                + "[HISTORY] Using fzf picker. Type to filter, Enter to select.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select.\n"
             )
             picked = _pick_with_fzf(
                 history,
@@ -834,7 +834,7 @@ def show_history() -> None:
                     f"{item[0].filename}\t[{root_tags.get(item[0].root, item[0].root)}]\t{item[1]}"
                 ),
                 multi=False,
-                prompt="History> ",
+                prompt="Search: ",
             )
             if picked:
                 play_entry(picked[0][0], conn)
@@ -880,9 +880,9 @@ def download_index() -> None:
     conn = get_conn()
     print(Fore.MAGENTA + "\n=== CineIndex Download ===")
     try:
-        print(Fore.CYAN + "\n[DL] Loading media entries...")
+        print(Fore.CYAN + "\n[SEARCH] Loading media entries...")
         entries = load_media_entries(conn)
-        print(Fore.GREEN + f"[DL] Loaded {len(entries)} entries.\n")
+        print(Fore.GREEN + f"[SEARCH] Loaded {len(entries)} entries.\n")
         if not entries:
             print(Fore.YELLOW + "No media indexed yet. Build the index first.\n")
             return
@@ -892,7 +892,7 @@ def download_index() -> None:
         if _fzf_binary():
             print(
                 Fore.CYAN
-                + "[DL] Using fzf picker. Type to filter, Tab to mark, Enter to download.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download.\n"
             )
 
             while True:
@@ -900,7 +900,7 @@ def download_index() -> None:
                     entries,
                     lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=True,
-                    prompt="Download> ",
+                    prompt="Search: ",
                 )
                 if not picked:
                     print()
@@ -933,7 +933,7 @@ def download_index() -> None:
                     [entry for entry, _score in results],
                     lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
                     multi=True,
-                    prompt="Download> ",
+                    prompt="Search: ",
                 )
                 if not picked:
                     continue
