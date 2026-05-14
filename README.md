@@ -156,15 +156,5 @@ This is used to populate the in-app **Watch History** menu and resume playback.
 
 
 
-### ☕ Support
-
-If you find CineIndex helpful, consider supporting development:
-
-<a href="https://www.buymeacoffee.com/fahim.ahmed" target="_blank">
-  <img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" 
-   alt="Buy Me A Coffee"
-   style="height: 41px !important; width: 174px !important; box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5);" />
-</a>
-
 
 
