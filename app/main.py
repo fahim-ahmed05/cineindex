@@ -148,6 +148,15 @@ def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
 
 
+def _change_text(before: int, after: int, noun: str) -> str:
+    delta = after - before
+    if delta < 0:
+        return f"{noun}={before}→{after} (removed {-delta})"
+    if delta > 0:
+        return f"{noun}={before}→{after} (added {delta})"
+    return f"{noun}={before}→{after} (no change)"
+
+
 def _pick_with_fzf(
     items: list[T],
     item_to_text: Callable[[T], str],
@@ -182,28 +191,55 @@ def _pick_with_fzf(
     if multi:
         cmd.append("--multi")
 
+    input_file = None
+    output_file = None
     try:
-        proc = subprocess.run(
-            cmd,
-            input="\n".join(lines) + "\n",
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
+        with tempfile.NamedTemporaryFile(
+            delete=False, mode="w", encoding="utf-8", suffix=".txt"
+        ) as input_handle:
+            input_handle.write("\n".join(lines) + "\n")
+            input_file = input_handle.name
+
+        with tempfile.NamedTemporaryFile(
+            delete=False, mode="w", encoding="utf-8", suffix=".txt"
+        ) as output_handle:
+            output_file = output_handle.name
+
+        redirect_cmd = (
+            f'"{fzf_bin}" --ansi --delimiter "\t" --with-nth "2,3,4" '
+            f'--prompt "{prompt}" --height 70% --border --layout=reverse '
+            + ("--multi " if multi else "")
+            + f'< "{input_file}" > "{output_file}"'
         )
+
+        proc = subprocess.run(redirect_cmd, shell=True)
+        if proc.returncode != 0:
+            return []
+
+        try:
+            selected_text = Path(output_file).read_text(encoding="utf-8").strip()
+        except OSError:
+            return []
+
+        if not selected_text:
+            return []
     except Exception as e:
         print(
             Fore.YELLOW
             + f"[SEARCH] fzf unavailable, falling back to the built-in picker: {e}"
         )
         return []
-
-    if proc.returncode != 0 or not proc.stdout:
-        return []
+    finally:
+        for temp_path in (input_file, output_file):
+            if temp_path:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
     selected: list[T] = []
     seen: set[str] = set()
-    for line in proc.stdout.splitlines():
+    for line in selected_text.splitlines():
         idx = line.split("\t", 1)[0].strip()
         if not idx or idx in seen:
             continue
@@ -493,14 +529,6 @@ def build_index() -> None:
         cur.execute("SELECT COUNT(*) FROM media")
         old_media_total = cur.fetchone()[0]
         purge_deleted_roots(conn, active_roots)
-
-        def _change_text(before: int, after: int, noun: str) -> str:
-            delta = after - before
-            if delta < 0:
-                return f"{noun}={before}→{after} (removed {-delta})"
-            if delta > 0:
-                return f"{noun}={before}→{after} (added {delta})"
-            return f"{noun}={before}→{after} (no change)"
 
         for index, rc in enumerate(root_cfgs, start=1):
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
@@ -796,6 +824,10 @@ def show_history() -> None:
         print(Fore.MAGENTA + "\n=== CineIndex Watch History ===\n")
 
         if _fzf_binary():
+            print(
+                Fore.CYAN
+                + "[HISTORY] Using fzf picker. Type to filter, Enter to select.\n"
+            )
             picked = _pick_with_fzf(
                 history,
                 lambda item: (
