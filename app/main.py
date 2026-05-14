@@ -892,7 +892,7 @@ def download_index() -> None:
         if _fzf_binary():
             print(
                 Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download, Esc to exit.\n"
             )
 
             while True:
