@@ -404,14 +404,58 @@ def build_index() -> None:
     crawl_cfg = load_crawl_config(cfg_raw)
     conn = get_conn()
     try:
+        total_roots = len(root_cfgs)
         active_roots = {rc.url for rc in root_cfgs}
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM dirs")
+        old_dirs_total = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM media")
+        old_media_total = cur.fetchone()[0]
         purge_deleted_roots(conn, active_roots)
 
-        for rc in root_cfgs:
-            crawl_root(rc, crawl_cfg, conn=conn, incremental=False, summary_only=True)
+        for index, rc in enumerate(root_cfgs, start=1):
+            remaining = total_roots - index
+            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
+            before_dirs = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
+            before_media = cur.fetchone()[0]
+
+            result = crawl_root(
+                rc,
+                crawl_cfg,
+                conn=conn,
+                incremental=False,
+                summary_only=True,
+            )
+
+            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
+            after_dirs = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
+            after_media = cur.fetchone()[0]
+
+            print(
+                Fore.GREEN
+                + (
+                    f"[BUILD] {index}/{total_roots} done, remaining={remaining} | "
+                    f"root={rc.url} | +dirs={after_dirs - before_dirs}, "
+                    f"+files={after_media - before_media}, time={result.elapsed_seconds:.1f}s"
+                )
+            )
+
+        cur.execute("SELECT COUNT(*) FROM dirs")
+        new_dirs_total = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM media")
+        new_media_total = cur.fetchone()[0]
+        print(
+            Fore.MAGENTA
+            + (
+                f"[BUILD] Summary: roots={total_roots}, "
+                f"dirs={old_dirs_total}→{new_dirs_total} ({new_dirs_total - old_dirs_total:+}), "
+                f"files={old_media_total}→{new_media_total} ({new_media_total - old_media_total:+})\n"
+            )
+        )
     finally:
         conn.close()
-    print(Fore.GREEN + "[BUILD] Done.\n")
 
 
 def update_index() -> None:
@@ -427,14 +471,58 @@ def update_index() -> None:
     crawl_cfg = load_crawl_config(cfg_raw)
     conn = get_conn()
     try:
+        total_roots = len(root_cfgs)
         active_roots = {rc.url for rc in root_cfgs}
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM dirs")
+        old_dirs_total = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM media")
+        old_media_total = cur.fetchone()[0]
         purge_deleted_roots(conn, active_roots)
 
-        for rc in root_cfgs:
-            crawl_root(rc, crawl_cfg, conn=conn, incremental=True, summary_only=True)
+        for index, rc in enumerate(root_cfgs, start=1):
+            remaining = total_roots - index
+            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
+            before_dirs = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
+            before_media = cur.fetchone()[0]
+
+            result = crawl_root(
+                rc,
+                crawl_cfg,
+                conn=conn,
+                incremental=True,
+                summary_only=True,
+            )
+
+            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
+            after_dirs = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
+            after_media = cur.fetchone()[0]
+
+            print(
+                Fore.GREEN
+                + (
+                    f"[UPDATE] {index}/{total_roots} done, remaining={remaining} | "
+                    f"root={rc.url} | +dirs={after_dirs - before_dirs}, "
+                    f"+files={after_media - before_media}, time={result.elapsed_seconds:.1f}s"
+                )
+            )
+
+        cur.execute("SELECT COUNT(*) FROM dirs")
+        new_dirs_total = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM media")
+        new_media_total = cur.fetchone()[0]
+        print(
+            Fore.MAGENTA
+            + (
+                f"[UPDATE] Summary: roots={total_roots}, "
+                f"dirs={old_dirs_total}→{new_dirs_total} ({new_dirs_total - old_dirs_total:+}), "
+                f"files={old_media_total}→{new_media_total} ({new_media_total - old_media_total:+})\n"
+            )
+        )
     finally:
         conn.close()
-    print(Fore.GREEN + "[UPDATE] Done.\n")
 
 
 def show_stats() -> None:

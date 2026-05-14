@@ -24,6 +24,14 @@ class CrawlConfig:
     blocked_dirs: List[str]
 
 
+@dataclass
+class CrawlResult:
+    processed_dirs: int
+    inserted_files: int
+    skipped_dirs: int
+    elapsed_seconds: float
+
+
 def normalize_root_url(url: str) -> str:
     """Ensure root URL ends with a slash."""
     return url.rstrip("/") + "/"
@@ -102,7 +110,7 @@ def crawl_root(
     conn=None,
     incremental: bool = False,
     summary_only: bool = False,
-) -> None:
+) -> CrawlResult:
     """
     Crawl a single root directory and update the local database.
 
@@ -257,11 +265,12 @@ def crawl_root(
                 Fore.MAGENTA + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, "
                 f"skipped={skipped_dirs}, files={inserted_files}, time={elapsed:.1f}s\n"
             )
-        else:
-            print(
-                Fore.MAGENTA
-                + f"[DONE] {root_cfg.url} → dirs={processed_dirs}, files={inserted_files}, time={elapsed:.1f}s\n"
-            )
+        return CrawlResult(
+            processed_dirs=processed_dirs,
+            inserted_files=inserted_files,
+            skipped_dirs=skipped_dirs,
+            elapsed_seconds=elapsed,
+        )
     finally:
         if own_conn:
             conn.close()
