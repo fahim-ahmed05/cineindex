@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from typing import Callable, TypeVar
 
 from colorama import Fore, Style, init
@@ -578,6 +578,33 @@ def build_index() -> None:
                 )
             )
 
+            # If there are newly added files, show a compact grouped listing.
+            try:
+                added = getattr(result, "added_files", None)
+                if added:
+                    from collections import defaultdict
+
+                    grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
+                    for path, fname, furl in added:
+                        grouped[path].append((fname, furl))
+
+                    for path, files in grouped.items():
+                        # friendly directory name
+                        if path == "/":
+                            dir_label = "/"
+                        else:
+                            dir_label = unquote(path.strip("/").split("/")[-1])
+                        print(Fore.CYAN + "\n📂 " + dir_label)
+                        for i, (fname, furl) in enumerate(files):
+                            display_name = unquote(fname)
+                            prefix = "  ╰ " if i == 0 else "   ╰ "
+                            print(Fore.GREEN + prefix + display_name)
+                            print(Fore.YELLOW + "    url: " + furl)
+                    print()
+            except Exception:
+                # best-effort reporting; do not fail the whole build on display issues
+                pass
+
         cur.execute("SELECT COUNT(*) FROM dirs")
         new_dirs_total = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM media")
@@ -644,6 +671,31 @@ def update_index() -> None:
                     f"time={result.elapsed_seconds:.1f}s"
                 )
             )
+
+            # Show newly added files (grouped by directory) when available.
+            try:
+                added = getattr(result, "added_files", None)
+                if added:
+                    from collections import defaultdict
+
+                    grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
+                    for path, fname, furl in added:
+                        grouped[path].append((fname, furl))
+
+                    for path, files in grouped.items():
+                        if path == "/":
+                            dir_label = "/"
+                        else:
+                            dir_label = unquote(path.strip("/").split("/")[-1])
+                        print(Fore.CYAN + "\n📂 " + dir_label)
+                        for i, (fname, furl) in enumerate(files):
+                            display_name = unquote(fname)
+                            prefix = "  ╰ " if i == 0 else "   ╰ "
+                            print(Fore.GREEN + prefix + display_name)
+                            print(Fore.YELLOW + "    url: " + furl)
+                    print()
+            except Exception:
+                pass
 
         cur.execute("SELECT COUNT(*) FROM dirs")
         new_dirs_total = cur.fetchone()[0]

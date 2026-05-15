@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional, List, Tuple
 import time
 
@@ -30,6 +30,8 @@ class CrawlResult:
     inserted_files: int
     skipped_dirs: int
     elapsed_seconds: float
+    # List of added files as tuples: (path, filename, url)
+    added_files: List[Tuple[str, str, str]] = field(default_factory=list)
 
 
 def normalize_root_url(url: str) -> str:
@@ -145,6 +147,7 @@ def crawl_root(
         queue: List[Tuple[str, Optional[str]]] = [(root_cfg.url, None)]
         processed_dirs = 0
         inserted_files = 0
+        added_files: List[Tuple[str, str, str]] = []
         skipped_dirs = 0
 
         if verbose:
@@ -224,6 +227,8 @@ def crawl_root(
                         (f.url, root_cfg.url, rel_path, f.name, f.modified, f.size),
                     )
                     batch_files += 1
+                    # Record added file (path, filename, url) for reporting
+                    added_files.append((rel_path, f.name, f.url))
 
                 inserted_files += batch_files
 
@@ -270,6 +275,7 @@ def crawl_root(
             inserted_files=inserted_files,
             skipped_dirs=skipped_dirs,
             elapsed_seconds=elapsed,
+            added_files=added_files,
         )
     finally:
         if own_conn:
