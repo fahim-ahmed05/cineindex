@@ -201,10 +201,12 @@ def _fzf_tag(
     )
 
 
-def _fzf_media_text(entry: MediaEntry, root_tags: dict[str, str]) -> str:
+def _fzf_media_text(
+    entry: MediaEntry, root_tags: dict[str, str], *, file_width: int = 80
+) -> str:
     dir_label = _dir_label_from_path(entry.path)
     root_label = root_tags.get(entry.root, entry.root)
-    file_col = _truncate_text(entry.filename, 80).ljust(80)
+    file_col = _truncate_text(entry.filename, file_width).ljust(file_width)
     dir_col = _fzf_tag(dir_label, width=20, color_rgb=(136, 192, 208), bold=True)
     root_col = _fzf_tag(root_label, width=14, color_rgb=(94, 129, 172))
     return f"{file_col}  " f"{dir_col}  " f"{root_col}"
@@ -212,7 +214,7 @@ def _fzf_media_text(entry: MediaEntry, root_tags: dict[str, str]) -> str:
 
 def _fzf_history_text(item: tuple[MediaEntry, str], root_tags: dict[str, str]) -> str:
     entry, played_at = item
-    base = _fzf_media_text(entry, root_tags)
+    base = _fzf_media_text(entry, root_tags, file_width=66)
     played_col = _ansi_rgb(
         _truncate_text(played_at, 19).ljust(19), 76, 86, 106, dim=True
     )
