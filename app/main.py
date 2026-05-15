@@ -148,10 +148,6 @@ def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
 
 
-def _tree_display_name(path: str) -> str:
-    return "/" if path == "/" else unquote(path.strip("/").split("/")[-1])
-
-
 def _tree_path_parts(path: str) -> list[str]:
     if path == "/" or not path:
         return []
@@ -175,7 +171,6 @@ def _tree_render_node(
     node: dict,
     *,
     prefix: str = "",
-    is_root: bool = False,
 ) -> None:
     children = list(node["children"].items())
     files = list(node["files"])
@@ -197,6 +192,65 @@ def _tree_render_node(
 def _tree_render_root(root_tag: str, tree: dict) -> None:
     print(Fore.MAGENTA + root_tag)
     _tree_render_node(tree, prefix="")
+
+
+def _crawl_root_with_tree(
+    rc,
+    *,
+    crawl_cfg: dict,
+    conn,
+    root_tag_map: dict[str, str],
+    incremental: bool,
+    max_per_root: int,
+) -> tuple[int, int, int, int, float, int]:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
+    before_dirs = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
+    before_media = cur.fetchone()[0]
+
+    live_state: dict = {
+        "tree": _tree_init(),
+        "printed_count": 0,
+        "suppressed": 0,
+    }
+
+    def _on_new_file(_root_url: str, rel_path: str, fname: str) -> None:
+        try:
+            if max_per_root == 0 or live_state["printed_count"] < max_per_root:
+                _tree_add_file(live_state["tree"], rel_path, unquote(fname))
+                live_state["printed_count"] += 1
+            else:
+                live_state["suppressed"] += 1
+        except Exception:
+            pass
+
+    result = crawl_root(
+        rc,
+        crawl_cfg,
+        conn=conn,
+        incremental=incremental,
+        summary_only=True,
+        on_new_file=_on_new_file,
+    )
+
+    if live_state["printed_count"] > 0:
+        print()
+        _tree_render_root(root_tag_map.get(rc.url, rc.url), live_state["tree"])
+
+    cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
+    after_dirs = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
+    after_media = cur.fetchone()[0]
+
+    return (
+        before_dirs,
+        after_dirs,
+        before_media,
+        after_media,
+        result.elapsed_seconds,
+        int(live_state["suppressed"]),
+    )
 
 
 def _change_text(before: int, after: int, noun: str) -> str:
@@ -683,66 +737,33 @@ def build_index() -> None:
 
         root_tag_map = build_root_tag_map()
         for index, rc in enumerate(crawl_targets, start=1):
-            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
-            before_dirs = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
-            before_media = cur.fetchone()[0]
-
-            # Prepare live reporting callback
-            live_state: dict = {
-                "tree": _tree_init(),
-                "printed_count": 0,
-                "suppressed": 0,
-            }
-
-            def _on_new_file(root_url: str, rel_path: str, fname: str) -> None:
-                try:
-                    if max_per_root == 0 or live_state["printed_count"] < max_per_root:
-                        _tree_add_file(live_state["tree"], rel_path, unquote(fname))
-                        live_state["printed_count"] += 1
-                    else:
-                        live_state["suppressed"] += 1
-                except Exception:
-                    pass
-
-            result = crawl_root(
+            (
+                before_dirs,
+                after_dirs,
+                before_media,
+                after_media,
+                elapsed_seconds,
+                suppressed,
+            ) = _crawl_root_with_tree(
                 rc,
-                crawl_cfg,
+                crawl_cfg=crawl_cfg,
                 conn=conn,
+                root_tag_map=root_tag_map,
                 incremental=False,
-                summary_only=True,
-                on_new_file=_on_new_file,
+                max_per_root=max_per_root,
             )
-
-            if live_state["printed_count"] > 0:
-                print()
-                _tree_render_root(root_tag_map.get(rc.url, rc.url), live_state["tree"])
-
-            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
-            after_dirs = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
-            after_media = cur.fetchone()[0]
 
             print(
                 Fore.GREEN
                 + (
                     f"[BUILD] {index}/{total_roots} done | root={rc.url} | "
                     f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
-                    f"time={result.elapsed_seconds:.1f}s"
+                    f"time={elapsed_seconds:.1f}s"
                 )
             )
 
-            # If we used live reporting and some files were suppressed by the cap,
-            # print a short footer note. Otherwise, we won't repeat the grouped listing
-            # (live printing already showed the names).
-            try:
-                if live_state.get("suppressed", 0) > 0:
-                    print(
-                        Fore.YELLOW
-                        + f"  ... +{live_state['suppressed']} more omitted for this root"
-                    )
-            except Exception:
-                pass
+            if suppressed > 0:
+                print(Fore.YELLOW + f"  ... +{suppressed} more omitted for this root")
 
         cur.execute("SELECT COUNT(*) FROM dirs")
         new_dirs_total = cur.fetchone()[0]
@@ -796,44 +817,21 @@ def update_index() -> None:
 
         root_tag_map = build_root_tag_map()
         for index, rc in enumerate(crawl_targets, start=1):
-            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
-            before_dirs = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
-            before_media = cur.fetchone()[0]
-
-            live_state: dict = {
-                "tree": _tree_init(),
-                "printed_count": 0,
-                "suppressed": 0,
-            }
-
-            def _on_new_file(root_url: str, rel_path: str, fname: str) -> None:
-                try:
-                    if max_per_root == 0 or live_state["printed_count"] < max_per_root:
-                        _tree_add_file(live_state["tree"], rel_path, unquote(fname))
-                        live_state["printed_count"] += 1
-                    else:
-                        live_state["suppressed"] += 1
-                except Exception:
-                    pass
-
-            result = crawl_root(
+            (
+                before_dirs,
+                after_dirs,
+                before_media,
+                after_media,
+                elapsed_seconds,
+                suppressed,
+            ) = _crawl_root_with_tree(
                 rc,
-                crawl_cfg,
+                crawl_cfg=crawl_cfg,
                 conn=conn,
+                root_tag_map=root_tag_map,
                 incremental=True,
-                summary_only=True,
-                on_new_file=_on_new_file,
+                max_per_root=max_per_root,
             )
-
-            if live_state["printed_count"] > 0:
-                print()
-                _tree_render_root(root_tag_map.get(rc.url, rc.url), live_state["tree"])
-
-            cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
-            after_dirs = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
-            after_media = cur.fetchone()[0]
 
             print(
                 Fore.GREEN
@@ -841,18 +839,12 @@ def update_index() -> None:
                     f"[UPDATE] {index}/{total_roots} done | root={rc.url} | "
                     f"{_change_text(before_dirs, after_dirs, 'dirs')}, "
                     f"{_change_text(before_media, after_media, 'files')}, "
-                    f"time={result.elapsed_seconds:.1f}s"
+                    f"time={elapsed_seconds:.1f}s"
                 )
             )
 
-            try:
-                if live_state.get("suppressed", 0) > 0:
-                    print(
-                        Fore.YELLOW
-                        + f"  ... +{live_state['suppressed']} more omitted for this root"
-                    )
-            except Exception:
-                pass
+            if suppressed > 0:
+                print(Fore.YELLOW + f"  ... +{suppressed} more omitted for this root")
 
         cur.execute("SELECT COUNT(*) FROM dirs")
         new_dirs_total = cur.fetchone()[0]
