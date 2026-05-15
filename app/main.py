@@ -163,10 +163,25 @@ def _dir_label_from_path(path: str) -> str:
     return unquote(path.strip("/").split("/")[-1])
 
 
+def _fzf_tag(label: str, color: str) -> str:
+    # Styled tag text for fzf rows; --ansi in fzf keeps colors readable.
+    return f"{Style.BRIGHT}{color}[{label}]{Style.RESET_ALL}"
+
+
 def _fzf_media_text(entry: MediaEntry, root_tags: dict[str, str]) -> str:
     dir_label = _dir_label_from_path(entry.path)
     root_label = root_tags.get(entry.root, entry.root)
-    return f"{entry.filename} [{dir_label}] [{root_label}]"
+    return (
+        f"{entry.filename} "
+        f"{_fzf_tag(dir_label, Fore.YELLOW)} "
+        f"{_fzf_tag(root_label, Fore.CYAN)}"
+    )
+
+
+def _fzf_history_text(item: tuple[MediaEntry, str], root_tags: dict[str, str]) -> str:
+    entry, played_at = item
+    base = _fzf_media_text(entry, root_tags)
+    return f"{base} {Style.DIM}{played_at}{Style.RESET_ALL}"
 
 
 def _pick_with_fzf(
@@ -980,9 +995,7 @@ def show_history() -> None:
             )
             picked, _ = _pick_with_fzf(
                 history,
-                lambda item: (
-                    f"{item[0].filename} [{_dir_label_from_path(item[0].path)}] [{root_tags.get(item[0].root, item[0].root)}] {item[1]}"
-                ),
+                lambda item: _fzf_history_text(item, root_tags),
                 multi=False,
                 prompt="Search: ",
             )
