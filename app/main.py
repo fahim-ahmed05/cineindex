@@ -215,9 +215,7 @@ def _fzf_media_text(
 def _fzf_history_text(item: tuple[MediaEntry, str], root_tags: dict[str, str]) -> str:
     entry, played_at = item
     base = _fzf_media_text(entry, root_tags, file_width=66)
-    played_col = _ansi_rgb(
-        _truncate_text(played_at, 19).ljust(19), 76, 86, 106, dim=True
-    )
+    played_col = _ansi_rgb(_truncate_text(played_at, 19).ljust(19), 76, 86, 106)
     return f"{base}  {played_col}"
 
 
