@@ -157,6 +157,18 @@ def _change_text(before: int, after: int, noun: str) -> str:
     return f"{noun}={before}→{after}"
 
 
+def _dir_label_from_path(path: str) -> str:
+    if path == "/":
+        return "/"
+    return unquote(path.strip("/").split("/")[-1])
+
+
+def _fzf_media_text(entry: MediaEntry, root_tags: dict[str, str]) -> str:
+    dir_label = _dir_label_from_path(entry.path)
+    root_label = root_tags.get(entry.root, entry.root)
+    return f"{entry.filename} [{dir_label}] [{root_label}]"
+
+
 def _pick_with_fzf(
     items: list[T],
     item_to_text: Callable[[T], str],
@@ -167,7 +179,7 @@ def _pick_with_fzf(
 ) -> tuple[list[T], str]:
     fzf_bin = _fzf_binary()
     if not fzf_bin or not items:
-        return []
+        return [], initial_query or ""
 
     index_lookup: dict[str, T] = {}
     lines: list[str] = []
@@ -237,7 +249,7 @@ def _pick_with_fzf(
             Fore.YELLOW
             + f"[SEARCH] fzf unavailable, falling back to the built-in picker: {e}"
         )
-        return []
+        return [], initial_query or ""
     finally:
         for temp_path in (input_file, output_file):
             if temp_path:
@@ -539,11 +551,6 @@ def build_index() -> None:
     cfg_raw = load_config()
     root_cfgs = load_root_configs(roots_raw)
     crawl_cfg = load_crawl_config(cfg_raw)
-    try:
-        max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
-    except Exception:
-        max_per_root = 0
-    crawl_targets = [rc for rc in root_cfgs if getattr(rc, "enabled", True)]
     # Determine max per-root live prints (0 = unlimited). Can be set in config.json
     try:
         max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
@@ -670,6 +677,11 @@ def update_index() -> None:
     cfg_raw = load_config()
     root_cfgs = load_root_configs(roots_raw)
     crawl_cfg = load_crawl_config(cfg_raw)
+    try:
+        max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
+    except Exception:
+        max_per_root = 0
+    crawl_targets = [rc for rc in root_cfgs if getattr(rc, "enabled", True)]
     conn = get_conn()
     try:
         total_roots = len(crawl_targets)
@@ -808,7 +820,6 @@ def search_index() -> None:
             return
 
         root_tags = build_root_tag_map()
-        last_query = ""
         last_query: str = ""
 
         if _fzf_binary():
@@ -820,7 +831,7 @@ def search_index() -> None:
             while True:
                 picked, last_query = _pick_with_fzf(
                     entries,
-                    lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
+                    lambda entry: _fzf_media_text(entry, root_tags),
                     multi=False,
                     prompt="Search: ",
                     initial_query=last_query,
@@ -853,7 +864,7 @@ def search_index() -> None:
                 if _fzf_binary():
                     picked, last_query = _pick_with_fzf(
                         [entry for entry, _score in last_results],
-                        lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
+                        lambda entry: _fzf_media_text(entry, root_tags),
                         multi=False,
                         prompt="Stream> ",
                         initial_query=last_query,
@@ -910,8 +921,8 @@ def search_index() -> None:
 
             if _fzf_binary():
                 picked, last_query = _pick_with_fzf(
-                    results,
-                    root_tags,
+                    [entry for entry, _score in results],
+                    lambda entry: _fzf_media_text(entry, root_tags),
                     multi=False,
                     prompt="Stream> ",
                     initial_query=last_query,
@@ -919,7 +930,7 @@ def search_index() -> None:
                 if not picked:
                     last_results = None
                     continue
-                play_entry(picked[0][0], conn)
+                play_entry(picked[0], conn)
                 continue
 
             render_results(results)
@@ -970,7 +981,7 @@ def show_history() -> None:
             picked, _ = _pick_with_fzf(
                 history,
                 lambda item: (
-                    f"{item[0].filename}\t[{root_tags.get(item[0].root, item[0].root)}]\t{item[1]}"
+                    f"{item[0].filename} [{_dir_label_from_path(item[0].path)}] [{root_tags.get(item[0].root, item[0].root)}] {item[1]}"
                 ),
                 multi=False,
                 prompt="Search: ",
@@ -1027,6 +1038,7 @@ def download_index() -> None:
             return
 
         root_tags = build_root_tag_map()
+        last_query: str = ""
 
         if _fzf_binary():
             print(
@@ -1037,7 +1049,7 @@ def download_index() -> None:
             while True:
                 picked, last_query = _pick_with_fzf(
                     entries,
-                    lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
+                    lambda entry: _fzf_media_text(entry, root_tags),
                     multi=True,
                     prompt="Search: ",
                     initial_query=last_query,
@@ -1071,7 +1083,7 @@ def download_index() -> None:
             if _fzf_binary():
                 picked, last_query = _pick_with_fzf(
                     [entry for entry, _score in results],
-                    lambda entry: f"{entry.filename}\t[{root_tags.get(entry.root, entry.root)}]",
+                    lambda entry: _fzf_media_text(entry, root_tags),
                     multi=True,
                     prompt="Search: ",
                     initial_query=last_query,
