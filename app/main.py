@@ -163,25 +163,60 @@ def _dir_label_from_path(path: str) -> str:
     return unquote(path.strip("/").split("/")[-1])
 
 
-def _fzf_tag(label: str, color: str) -> str:
-    # Styled tag text for fzf rows; --ansi in fzf keeps colors readable.
-    return f"{Style.BRIGHT}{color}[{label}]{Style.RESET_ALL}"
+def _truncate_text(text: str, max_len: int) -> str:
+    if max_len <= 0:
+        return ""
+    if len(text) <= max_len:
+        return text
+    if max_len <= 3:
+        return "." * max_len
+    return text[: max_len - 3] + "..."
+
+
+def _ansi_rgb(
+    text: str, r: int, g: int, b: int, *, bold: bool = False, dim: bool = False
+) -> str:
+    # Truecolor ANSI style for fzf rows (--ansi). Uses a muted Nord-like palette.
+    attrs: list[str] = []
+    if bold:
+        attrs.append("1")
+    if dim:
+        attrs.append("2")
+    attrs.append(f"38;2;{r};{g};{b}")
+    prefix = "\x1b[" + ";".join(attrs) + "m"
+    return f"{prefix}{text}{Style.RESET_ALL}"
+
+
+def _fzf_tag(
+    label: str,
+    *,
+    width: int,
+    color_rgb: tuple[int, int, int],
+    bold: bool = False,
+    dim: bool = False,
+) -> str:
+    clean = _truncate_text(label, width).ljust(width)
+    return _ansi_rgb(
+        clean, color_rgb[0], color_rgb[1], color_rgb[2], bold=bold, dim=dim
+    )
 
 
 def _fzf_media_text(entry: MediaEntry, root_tags: dict[str, str]) -> str:
     dir_label = _dir_label_from_path(entry.path)
     root_label = root_tags.get(entry.root, entry.root)
-    return (
-        f"{entry.filename} "
-        f"{_fzf_tag(dir_label, Fore.YELLOW)} "
-        f"{_fzf_tag(root_label, Fore.CYAN)}"
-    )
+    file_col = _truncate_text(entry.filename, 80).ljust(80)
+    dir_col = _fzf_tag(dir_label, width=20, color_rgb=(136, 192, 208), bold=True)
+    root_col = _fzf_tag(root_label, width=14, color_rgb=(94, 129, 172))
+    return f"{file_col}  " f"{dir_col}  " f"{root_col}"
 
 
 def _fzf_history_text(item: tuple[MediaEntry, str], root_tags: dict[str, str]) -> str:
     entry, played_at = item
     base = _fzf_media_text(entry, root_tags)
-    return f"{base} {Style.DIM}{played_at}{Style.RESET_ALL}"
+    played_col = _ansi_rgb(
+        _truncate_text(played_at, 19).ljust(19), 76, 86, 106, dim=True
+    )
+    return f"{base}  {played_col}"
 
 
 def _pick_with_fzf(
