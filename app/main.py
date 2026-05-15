@@ -148,6 +148,25 @@ def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
 
 
+def _tree_prefix(depth: int, is_last: bool) -> str:
+    if depth <= 0:
+        return ""
+    branch = "└── " if is_last else "├── "
+    return "    " * (depth - 1) + branch
+
+
+def _print_live_tree_root(root_tag: str) -> None:
+    print(Fore.MAGENTA + root_tag)
+
+
+def _print_live_tree_dir(dir_label: str, *, is_last: bool = False) -> None:
+    print(Fore.CYAN + _tree_prefix(1, is_last) + dir_label)
+
+
+def _print_live_tree_file(file_label: str, *, is_last: bool = False) -> None:
+    print(Fore.GREEN + _tree_prefix(2, is_last) + file_label)
+
+
 def _change_text(before: int, after: int, noun: str) -> str:
     delta = after - before
     if delta < 0:
@@ -649,7 +668,8 @@ def build_index() -> None:
                 try:
                     if not live_state["printed_any"]:
                         root_tag = root_tag_map.get(root_url, root_url)
-                        print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
+                        print()
+                        _print_live_tree_root(root_tag)
                         live_state["printed_any"] = True
 
                     if rel_path not in live_state["printed_dirs"]:
@@ -657,12 +677,12 @@ def build_index() -> None:
                             dir_label = "/"
                         else:
                             dir_label = unquote(rel_path.strip("/").split("/")[-1])
-                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
+                        _print_live_tree_dir(dir_label)
                         live_state["printed_dirs"].add(rel_path)
 
                     if max_per_root == 0 or live_state["printed_count"] < max_per_root:
                         display_name = unquote(fname)
-                        print(Fore.GREEN + "     ╰ 🎞️ " + display_name)
+                        _print_live_tree_file(display_name)
                         live_state["printed_count"] += 1
                     else:
                         live_state["suppressed"] += 1
@@ -772,7 +792,8 @@ def update_index() -> None:
                 try:
                     if not live_state["printed_any"]:
                         root_tag = root_tag_map.get(root_url, root_url)
-                        print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
+                        print()
+                        _print_live_tree_root(root_tag)
                         live_state["printed_any"] = True
 
                     if rel_path not in live_state["printed_dirs"]:
@@ -780,12 +801,12 @@ def update_index() -> None:
                             dir_label = "/"
                         else:
                             dir_label = unquote(rel_path.strip("/").split("/")[-1])
-                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
+                        _print_live_tree_dir(dir_label)
                         live_state["printed_dirs"].add(rel_path)
 
                     if max_per_root == 0 or live_state["printed_count"] < max_per_root:
                         display_name = unquote(fname)
-                        print(Fore.GREEN + "     ╰ 🎞️ " + display_name)
+                        _print_live_tree_file(display_name)
                         live_state["printed_count"] += 1
                     else:
                         live_state["suppressed"] += 1
@@ -1206,7 +1227,7 @@ def main() -> None:
         print_menu()
         choice = input(Fore.CYAN + "\nSelect an option (ENTER to quit): ").strip()
         if choice == "":
-            print(Fore.YELLOW + "\n👋 Bye!\n")
+            print(Fore.YELLOW + "\nBye!\n")
             break
         if choice == "1":
             build_index()
