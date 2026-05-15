@@ -206,21 +206,21 @@ def _fzf_media_text(
 ) -> str:
     dir_label = _dir_label_from_path(entry.path)
     root_label = root_tags.get(entry.root, entry.root)
-    file_text = _truncate_text(entry.filename, 80)
-    dir_text = _ansi_rgb(_truncate_text(dir_label, 30), 136, 192, 208, bold=True)
-    root_text = _ansi_rgb(_truncate_text(root_label, 20), 94, 129, 172)
+    file_text = entry.filename
+    dir_text = _ansi_rgb(dir_label, 136, 192, 208, bold=True)
+    root_text = _ansi_rgb(root_label, 94, 129, 172)
     return f"{file_text}    {dir_text}    {root_text}"
 
 
 def _fzf_history_text(item: tuple[MediaEntry, str], root_tags: dict[str, str]) -> str:
     entry, played_at = item
-    file_text = _truncate_text(entry.filename, 60)
+    file_text = entry.filename
     dir_label = _dir_label_from_path(entry.path)
-    dir_text = _ansi_rgb(_truncate_text(dir_label, 30), 136, 192, 208, bold=True)
+    dir_text = _ansi_rgb(dir_label, 136, 192, 208, bold=True)
     root_label = root_tags.get(entry.root, entry.root)
-    root_text = _ansi_rgb(_truncate_text(root_label, 20), 94, 129, 172)
-    played_text = _ansi_rgb(_truncate_text(played_at, 19), 76, 86, 106)
-    return f"{file_text}    {dir_text}    {root_text}    {played_text}"
+    root_text = _ansi_rgb(root_label, 94, 129, 172)
+    played_text = _ansi_rgb(played_at, 76, 86, 106)
+    return f"{file_text}    {dir_text}    {played_text}    {root_text}"
 
 
 def _pick_with_fzf(
