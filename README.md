@@ -136,6 +136,34 @@ Created automatically on first run.
 }
 ```
 
+#### Additional configuration options
+
+- **`max_per_root` (in `config.json`)**: integer. When set to a positive number, CineIndex will limit the number of new files indexed per root during a single crawl.
+  - Use `0` to indicate "no limit" (default behavior).
+- **Per-root `enabled` (in `roots.json`)**: boolean. Set to `false` to temporarily skip crawling a root without removing it from `roots.json`.
+
+Example showing the `enabled` flag and `max_per_root`:
+
+```json
+// roots.json
+[
+  {
+    "url": "http://10.12.100.34/",
+    "tag": "FTP",
+    "enabled": true
+  }
+]
+
+// config.json
+{
+  "video_extensions": ["mp4", "mkv", "avi"],
+  "blocked_dirs": ["Ebooks", "Software", "Games"],
+  "mpv_args": ["--save-position-on-quit"],
+  "download_dir": "",
+  "max_per_root": 0
+}
+```
+
 ### 🎞️ Watch History
 
 Playback events are recorded by `cineindex-history.lua`, which MPV loads automatically.
