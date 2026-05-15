@@ -151,7 +151,7 @@ def _fzf_binary() -> str | None:
 def _tree_path_parts(path: str) -> list[str]:
     if path == "/" or not path:
         return []
-    return [part for part in path.strip("/").split("/") if part]
+    return [unquote(part) for part in path.strip("/").split("/") if part]
 
 
 def _tree_init() -> dict:
