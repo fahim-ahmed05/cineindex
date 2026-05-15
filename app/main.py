@@ -262,6 +262,19 @@ def _change_text(before: int, after: int, noun: str) -> str:
     return f"{noun}={before}→{after}"
 
 
+def _render_numbered_items(
+    items: list[T],
+    render_item: Callable[[int, T], list[str]],
+) -> None:
+    print()
+    for i in reversed(range(len(items))):
+        for line in render_item(i, items[i]):
+            print(line)
+        if i != 0:
+            print(separator_line())
+    print()
+
+
 def _truncate_text(text: str, max_len: int) -> str:
     if max_len <= 0:
         return ""
@@ -919,17 +932,17 @@ def search_index() -> None:
         choices = build_choice_list(entries)
 
         def render_results(results: list[tuple[MediaEntry, float]]) -> None:
-            print()
-            for i in reversed(range(len(results))):
-                entry, score = results[i]
-                num = i + 1
-                color = Fore.GREEN if i % 2 == 0 else Fore.CYAN
+            def _render_row(index: int, row: tuple[MediaEntry, float]) -> list[str]:
+                entry, score = row
+                num = index + 1
+                color = Fore.GREEN if index % 2 == 0 else Fore.CYAN
                 display_root = root_tags.get(entry.root, entry.root)
-                print(color + f"{num:2d}. {entry.filename} (score {score:.1f})")
-                print(Fore.YELLOW + f"    [{display_root}] {entry.path}")
-                if i != 0:
-                    print(separator_line())
-            print()
+                return [
+                    color + f"{num:2d}. {entry.filename} (score {score:.1f})",
+                    Fore.YELLOW + f"    [{display_root}] {entry.path}",
+                ]
+
+            _render_numbered_items(results, _render_row)
 
         last_results: list[tuple[MediaEntry, float]] | None = None
 
@@ -1064,16 +1077,18 @@ def show_history() -> None:
             print()
             return
 
-        for i in reversed(range(len(history))):
-            entry, played_at = history[i]
-            num = i + 1
-            color = Fore.GREEN if i % 2 == 0 else Fore.CYAN
+        def _render_history_row(index: int, row: tuple[MediaEntry, str]) -> list[str]:
+            entry, played_at = row
+            num = index + 1
+            color = Fore.GREEN if index % 2 == 0 else Fore.CYAN
             display_root = root_tags.get(entry.root, entry.root)
-            print(color + f"{num:2d}. {entry.filename}")
-            print(Fore.YELLOW + f"    [{display_root}] {entry.path}")
-            print(Fore.CYAN + f"    Played at: {played_at}")
-            if i != 0:
-                print(separator_line())
+            return [
+                color + f"{num:2d}. {entry.filename}",
+                Fore.YELLOW + f"    [{display_root}] {entry.path}",
+                Fore.CYAN + f"    Played at: {played_at}",
+            ]
+
+        _render_numbered_items(history, _render_history_row)
 
         print()
         while True:
@@ -1169,17 +1184,17 @@ def download_index() -> None:
                 print()
                 continue
 
-            print()
-            for i in reversed(range(len(results))):
-                entry, score = results[i]
-                num = i + 1
-                color = Fore.GREEN if i % 2 == 0 else Fore.CYAN
+            def _render_row(index: int, row: tuple[MediaEntry, float]) -> list[str]:
+                entry, score = row
+                num = index + 1
+                color = Fore.GREEN if index % 2 == 0 else Fore.CYAN
                 display_root = root_tags.get(entry.root, entry.root)
-                print(color + f"{num:2d}. {entry.filename} (score {score:.1f})")
-                print(Fore.YELLOW + f"    [{display_root}] {entry.path}")
-                if i != 0:
-                    print(separator_line())
-            print()
+                return [
+                    color + f"{num:2d}. {entry.filename} (score {score:.1f})",
+                    Fore.YELLOW + f"    [{display_root}] {entry.path}",
+                ]
+
+            _render_numbered_items(results, _render_row)
 
             sel = input(
                 Fore.CYAN
