@@ -148,23 +148,55 @@ def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
 
 
-def _tree_prefix(depth: int, is_last: bool) -> str:
-    if depth <= 0:
-        return ""
-    branch = "└── " if is_last else "├── "
-    return "    " * (depth - 1) + branch
+def _tree_display_name(path: str) -> str:
+    return "/" if path == "/" else unquote(path.strip("/").split("/")[-1])
 
 
-def _print_live_tree_root(root_tag: str) -> None:
+def _tree_path_parts(path: str) -> list[str]:
+    if path == "/" or not path:
+        return []
+    return [part for part in path.strip("/").split("/") if part]
+
+
+def _tree_init() -> dict:
+    return {"children": {}, "files": []}
+
+
+def _tree_add_file(tree: dict, rel_path: str, filename: str) -> None:
+    node = tree
+    for part in _tree_path_parts(rel_path):
+        node = node["children"].setdefault(part, _tree_init())
+    files: list[str] = node["files"]
+    if filename not in files:
+        files.append(filename)
+
+
+def _tree_render_node(
+    node: dict,
+    *,
+    prefix: str = "",
+    is_root: bool = False,
+) -> None:
+    children = list(node["children"].items())
+    files = list(node["files"])
+    items: list[tuple[str, str, dict | None]] = [
+        ("dir", name, child) for name, child in children
+    ] + [("file", name, None) for name in files]
+
+    for index, (kind, name, child) in enumerate(items):
+        is_last = index == len(items) - 1
+        connector = "└── " if is_last else "├── "
+        if kind == "dir":
+            print(Fore.CYAN + prefix + connector + name)
+            next_prefix = prefix + ("    " if is_last else "│   ")
+            _tree_render_node(child or _tree_init(), prefix=next_prefix)
+        else:
+            print(Fore.GREEN + prefix + connector + name)
+
+
+def _tree_render_root(root_tag: str, tree: dict) -> None:
     print(Fore.MAGENTA + root_tag)
-
-
-def _print_live_tree_dir(dir_label: str, *, is_last: bool = False) -> None:
-    print(Fore.CYAN + _tree_prefix(1, is_last) + dir_label)
-
-
-def _print_live_tree_file(file_label: str, *, is_last: bool = False) -> None:
-    print(Fore.GREEN + _tree_prefix(2, is_last) + file_label)
+    _tree_render_node(tree, prefix="")
 
 
 def _change_text(before: int, after: int, noun: str) -> str:
@@ -176,12 +208,6 @@ def _change_text(before: int, after: int, noun: str) -> str:
     return f"{noun}={before}→{after}"
 
 
-def _dir_label_from_path(path: str) -> str:
-    if path == "/":
-        return "/"
-    return unquote(path.strip("/").split("/")[-1])
-
-
 def _truncate_text(text: str, max_len: int) -> str:
     if max_len <= 0:
         return ""
@@ -190,6 +216,12 @@ def _truncate_text(text: str, max_len: int) -> str:
     if max_len <= 3:
         return "." * max_len
     return text[: max_len - 3] + "..."
+
+
+def _dir_label_from_path(path: str) -> str:
+    if path == "/":
+        return "/"
+    return unquote(path.strip("/").split("/")[-1])
 
 
 def _ansi_rgb(
@@ -658,31 +690,15 @@ def build_index() -> None:
 
             # Prepare live reporting callback
             live_state: dict = {
-                "printed_any": False,
-                "printed_dirs": set(),
+                "tree": _tree_init(),
                 "printed_count": 0,
                 "suppressed": 0,
             }
 
             def _on_new_file(root_url: str, rel_path: str, fname: str) -> None:
                 try:
-                    if not live_state["printed_any"]:
-                        root_tag = root_tag_map.get(root_url, root_url)
-                        print()
-                        _print_live_tree_root(root_tag)
-                        live_state["printed_any"] = True
-
-                    if rel_path not in live_state["printed_dirs"]:
-                        if rel_path == "/":
-                            dir_label = "/"
-                        else:
-                            dir_label = unquote(rel_path.strip("/").split("/")[-1])
-                        _print_live_tree_dir(dir_label)
-                        live_state["printed_dirs"].add(rel_path)
-
                     if max_per_root == 0 or live_state["printed_count"] < max_per_root:
-                        display_name = unquote(fname)
-                        _print_live_tree_file(display_name)
+                        _tree_add_file(live_state["tree"], rel_path, unquote(fname))
                         live_state["printed_count"] += 1
                     else:
                         live_state["suppressed"] += 1
@@ -697,6 +713,10 @@ def build_index() -> None:
                 summary_only=True,
                 on_new_file=_on_new_file,
             )
+
+            if live_state["printed_count"] > 0:
+                print()
+                _tree_render_root(root_tag_map.get(rc.url, rc.url), live_state["tree"])
 
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
             after_dirs = cur.fetchone()[0]
@@ -782,31 +802,15 @@ def update_index() -> None:
             before_media = cur.fetchone()[0]
 
             live_state: dict = {
-                "printed_any": False,
-                "printed_dirs": set(),
+                "tree": _tree_init(),
                 "printed_count": 0,
                 "suppressed": 0,
             }
 
             def _on_new_file(root_url: str, rel_path: str, fname: str) -> None:
                 try:
-                    if not live_state["printed_any"]:
-                        root_tag = root_tag_map.get(root_url, root_url)
-                        print()
-                        _print_live_tree_root(root_tag)
-                        live_state["printed_any"] = True
-
-                    if rel_path not in live_state["printed_dirs"]:
-                        if rel_path == "/":
-                            dir_label = "/"
-                        else:
-                            dir_label = unquote(rel_path.strip("/").split("/")[-1])
-                        _print_live_tree_dir(dir_label)
-                        live_state["printed_dirs"].add(rel_path)
-
                     if max_per_root == 0 or live_state["printed_count"] < max_per_root:
-                        display_name = unquote(fname)
-                        _print_live_tree_file(display_name)
+                        _tree_add_file(live_state["tree"], rel_path, unquote(fname))
                         live_state["printed_count"] += 1
                     else:
                         live_state["suppressed"] += 1
@@ -821,6 +825,10 @@ def update_index() -> None:
                 summary_only=True,
                 on_new_file=_on_new_file,
             )
+
+            if live_state["printed_count"] > 0:
+                print()
+                _tree_render_root(root_tag_map.get(rc.url, rc.url), live_state["tree"])
 
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
             after_dirs = cur.fetchone()[0]
