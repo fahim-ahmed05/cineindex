@@ -588,18 +588,21 @@ def build_index() -> None:
                     for path, fname, furl in added:
                         grouped[path].append((fname, furl))
 
+                    # Print root tag header
+                    root_tag = build_root_tag_map().get(rc.url, rc.url)
+                    print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
+
                     for path, files in grouped.items():
                         # friendly directory name
                         if path == "/":
                             dir_label = "/"
                         else:
                             dir_label = unquote(path.strip("/").split("/")[-1])
-                        print(Fore.CYAN + "\n📂 " + dir_label)
+                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
                         for i, (fname, furl) in enumerate(files):
                             display_name = unquote(fname)
-                            prefix = "  ╰ " if i == 0 else "   ╰ "
-                            print(Fore.GREEN + prefix + display_name)
-                            print(Fore.YELLOW + "    url: " + furl)
+                            prefix = "     ╰ " if i == 0 else "      ╰ "
+                            print(Fore.GREEN + prefix + "🎞️ " + display_name)
                     print()
             except Exception:
                 # best-effort reporting; do not fail the whole build on display issues
@@ -682,17 +685,20 @@ def update_index() -> None:
                     for path, fname, furl in added:
                         grouped[path].append((fname, furl))
 
+                    # Print root tag header
+                    root_tag = build_root_tag_map().get(rc.url, rc.url)
+                    print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
+
                     for path, files in grouped.items():
                         if path == "/":
                             dir_label = "/"
                         else:
                             dir_label = unquote(path.strip("/").split("/")[-1])
-                        print(Fore.CYAN + "\n📂 " + dir_label)
+                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
                         for i, (fname, furl) in enumerate(files):
                             display_name = unquote(fname)
-                            prefix = "  ╰ " if i == 0 else "   ╰ "
-                            print(Fore.GREEN + prefix + display_name)
-                            print(Fore.YELLOW + "    url: " + furl)
+                            prefix = "     ╰ " if i == 0 else "      ╰ "
+                            print(Fore.GREEN + prefix + "🎞️ " + display_name)
                     print()
             except Exception:
                 pass
