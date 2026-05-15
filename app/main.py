@@ -645,7 +645,7 @@ def build_index() -> None:
                 try:
                     if not live_state["printed_any"]:
                         root_tag = root_tag_map.get(root_url, root_url)
-                        print(Fore.MAGENTA + f"\n🫚 {root_tag}")
+                        print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
                         live_state["printed_any"] = True
 
                     if rel_path not in live_state["printed_dirs"]:
@@ -658,7 +658,7 @@ def build_index() -> None:
 
                     if max_per_root == 0 or live_state["printed_count"] < max_per_root:
                         display_name = unquote(fname)
-                        print(Fore.GREEN + "     ╰ 📄 " + display_name)
+                        print(Fore.GREEN + "     ╰ 🎞️ " + display_name)
                         live_state["printed_count"] += 1
                     else:
                         live_state["suppressed"] += 1
@@ -768,7 +768,7 @@ def update_index() -> None:
                 try:
                     if not live_state["printed_any"]:
                         root_tag = root_tag_map.get(root_url, root_url)
-                        print(Fore.MAGENTA + f"\n🫚 {root_tag}")
+                        print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
                         live_state["printed_any"] = True
 
                     if rel_path not in live_state["printed_dirs"]:
@@ -781,7 +781,7 @@ def update_index() -> None:
 
                     if max_per_root == 0 or live_state["printed_count"] < max_per_root:
                         display_name = unquote(fname)
-                        print(Fore.GREEN + "     ╰ 📄 " + display_name)
+                        print(Fore.GREEN + "     ╰ 🎞️ " + display_name)
                         live_state["printed_count"] += 1
                     else:
                         live_state["suppressed"] += 1
