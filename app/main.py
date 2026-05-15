@@ -539,9 +539,21 @@ def build_index() -> None:
     cfg_raw = load_config()
     root_cfgs = load_root_configs(roots_raw)
     crawl_cfg = load_crawl_config(cfg_raw)
+    try:
+        max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
+    except Exception:
+        max_per_root = 0
+    crawl_targets = [rc for rc in root_cfgs if getattr(rc, "enabled", True)]
+    # Determine max per-root live prints (0 = unlimited). Can be set in config.json
+    try:
+        max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
+    except Exception:
+        max_per_root = 0
+    # Which roots to actually crawl (respect 'enabled' flag); keep all roots for purge
+    crawl_targets = [rc for rc in root_cfgs if getattr(rc, "enabled", True)]
     conn = get_conn()
     try:
-        total_roots = len(root_cfgs)
+        total_roots = len(crawl_targets)
         active_roots = {rc.url for rc in root_cfgs}
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM dirs")
@@ -550,11 +562,51 @@ def build_index() -> None:
         old_media_total = cur.fetchone()[0]
         purge_deleted_roots(conn, active_roots)
 
-        for index, rc in enumerate(root_cfgs, start=1):
+        if not crawl_targets:
+            print(
+                Fore.YELLOW
+                + "No enabled roots to crawl (check 'enabled' in roots.json).\n"
+            )
+            return
+
+        root_tag_map = build_root_tag_map()
+        for index, rc in enumerate(crawl_targets, start=1):
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
             before_dirs = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
             before_media = cur.fetchone()[0]
+
+            # Prepare live reporting callback
+            live_state: dict = {
+                "printed_any": False,
+                "printed_dirs": set(),
+                "printed_count": 0,
+                "suppressed": 0,
+            }
+
+            def _on_new_file(root_url: str, rel_path: str, fname: str) -> None:
+                try:
+                    if not live_state["printed_any"]:
+                        root_tag = root_tag_map.get(root_url, root_url)
+                        print(Fore.MAGENTA + f"\n🫚 {root_tag}")
+                        live_state["printed_any"] = True
+
+                    if rel_path not in live_state["printed_dirs"]:
+                        if rel_path == "/":
+                            dir_label = "/"
+                        else:
+                            dir_label = unquote(rel_path.strip("/").split("/")[-1])
+                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
+                        live_state["printed_dirs"].add(rel_path)
+
+                    if max_per_root == 0 or live_state["printed_count"] < max_per_root:
+                        display_name = unquote(fname)
+                        print(Fore.GREEN + "     ╰ 📄 " + display_name)
+                        live_state["printed_count"] += 1
+                    else:
+                        live_state["suppressed"] += 1
+                except Exception:
+                    pass
 
             result = crawl_root(
                 rc,
@@ -562,6 +614,7 @@ def build_index() -> None:
                 conn=conn,
                 incremental=False,
                 summary_only=True,
+                on_new_file=_on_new_file,
             )
 
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
@@ -578,34 +631,16 @@ def build_index() -> None:
                 )
             )
 
-            # If there are newly added files, show a compact grouped listing.
+            # If we used live reporting and some files were suppressed by the cap,
+            # print a short footer note. Otherwise, we won't repeat the grouped listing
+            # (live printing already showed the names).
             try:
-                added = getattr(result, "added_files", None)
-                if added:
-                    from collections import defaultdict
-
-                    grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
-                    for path, fname, furl in added:
-                        grouped[path].append((fname, furl))
-
-                    # Print root tag header
-                    root_tag = build_root_tag_map().get(rc.url, rc.url)
-                    print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
-
-                    for path, files in grouped.items():
-                        # friendly directory name
-                        if path == "/":
-                            dir_label = "/"
-                        else:
-                            dir_label = unquote(path.strip("/").split("/")[-1])
-                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
-                        for i, (fname, furl) in enumerate(files):
-                            display_name = unquote(fname)
-                            prefix = "     ╰ " if i == 0 else "      ╰ "
-                            print(Fore.GREEN + prefix + "🎞️ " + display_name)
-                    print()
+                if live_state.get("suppressed", 0) > 0:
+                    print(
+                        Fore.YELLOW
+                        + f"  ... +{live_state['suppressed']} more omitted for this root"
+                    )
             except Exception:
-                # best-effort reporting; do not fail the whole build on display issues
                 pass
 
         cur.execute("SELECT COUNT(*) FROM dirs")
@@ -637,7 +672,7 @@ def update_index() -> None:
     crawl_cfg = load_crawl_config(cfg_raw)
     conn = get_conn()
     try:
-        total_roots = len(root_cfgs)
+        total_roots = len(crawl_targets)
         active_roots = {rc.url for rc in root_cfgs}
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM dirs")
@@ -646,11 +681,50 @@ def update_index() -> None:
         old_media_total = cur.fetchone()[0]
         removed_dirs, removed_media = purge_deleted_roots(conn, active_roots)
 
-        for index, rc in enumerate(root_cfgs, start=1):
+        if not crawl_targets:
+            print(
+                Fore.YELLOW
+                + "No enabled roots to crawl (check 'enabled' in roots.json).\n"
+            )
+            return
+
+        root_tag_map = build_root_tag_map()
+        for index, rc in enumerate(crawl_targets, start=1):
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
             before_dirs = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM media WHERE root = ?", (rc.url,))
             before_media = cur.fetchone()[0]
+
+            live_state: dict = {
+                "printed_any": False,
+                "printed_dirs": set(),
+                "printed_count": 0,
+                "suppressed": 0,
+            }
+
+            def _on_new_file(root_url: str, rel_path: str, fname: str) -> None:
+                try:
+                    if not live_state["printed_any"]:
+                        root_tag = root_tag_map.get(root_url, root_url)
+                        print(Fore.MAGENTA + f"\n🫚 {root_tag}")
+                        live_state["printed_any"] = True
+
+                    if rel_path not in live_state["printed_dirs"]:
+                        if rel_path == "/":
+                            dir_label = "/"
+                        else:
+                            dir_label = unquote(rel_path.strip("/").split("/")[-1])
+                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
+                        live_state["printed_dirs"].add(rel_path)
+
+                    if max_per_root == 0 or live_state["printed_count"] < max_per_root:
+                        display_name = unquote(fname)
+                        print(Fore.GREEN + "     ╰ 📄 " + display_name)
+                        live_state["printed_count"] += 1
+                    else:
+                        live_state["suppressed"] += 1
+                except Exception:
+                    pass
 
             result = crawl_root(
                 rc,
@@ -658,6 +732,7 @@ def update_index() -> None:
                 conn=conn,
                 incremental=True,
                 summary_only=True,
+                on_new_file=_on_new_file,
             )
 
             cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
@@ -675,31 +750,12 @@ def update_index() -> None:
                 )
             )
 
-            # Show newly added files (grouped by directory) when available.
             try:
-                added = getattr(result, "added_files", None)
-                if added:
-                    from collections import defaultdict
-
-                    grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
-                    for path, fname, furl in added:
-                        grouped[path].append((fname, furl))
-
-                    # Print root tag header
-                    root_tag = build_root_tag_map().get(rc.url, rc.url)
-                    print(Fore.MAGENTA + f"\n🗃️ {root_tag}")
-
-                    for path, files in grouped.items():
-                        if path == "/":
-                            dir_label = "/"
-                        else:
-                            dir_label = unquote(path.strip("/").split("/")[-1])
-                        print(Fore.CYAN + " ╰ 📂 " + dir_label)
-                        for i, (fname, furl) in enumerate(files):
-                            display_name = unquote(fname)
-                            prefix = "     ╰ " if i == 0 else "      ╰ "
-                            print(Fore.GREEN + prefix + "🎞️ " + display_name)
-                    print()
+                if live_state.get("suppressed", 0) > 0:
+                    print(
+                        Fore.YELLOW
+                        + f"  ... +{live_state['suppressed']} more omitted for this root"
+                    )
             except Exception:
                 pass
 

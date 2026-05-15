@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, List, Tuple
+from typing import Iterable, Optional, List, Tuple, Callable
 import time
 
 import requests
@@ -16,6 +16,7 @@ init(autoreset=True)
 @dataclass
 class RootConfig:
     url: str
+    enabled: bool = True
 
 
 @dataclass
@@ -51,7 +52,8 @@ def load_root_configs(raw_roots: Iterable[dict]) -> List[RootConfig]:
         if not url:
             continue
         url = normalize_root_url(url)
-        roots.append(RootConfig(url=url))
+        enabled = r.get("enabled", True)
+        roots.append(RootConfig(url=url, enabled=bool(enabled)))
     return roots
 
 
@@ -112,6 +114,7 @@ def crawl_root(
     conn=None,
     incremental: bool = False,
     summary_only: bool = False,
+    on_new_file: Optional[Callable[[str, str, str], None]] = None,
 ) -> CrawlResult:
     """
     Crawl a single root directory and update the local database.
@@ -229,6 +232,13 @@ def crawl_root(
                     batch_files += 1
                     # Record added file (path, filename, url) for reporting
                     added_files.append((rel_path, f.name, f.url))
+                    # Notify live reporter if present
+                    if on_new_file is not None:
+                        try:
+                            on_new_file(root_cfg.url, rel_path, f.name)
+                        except Exception:
+                            # Reporter errors shouldn't stop crawling
+                            pass
 
                 inserted_files += batch_files
 
