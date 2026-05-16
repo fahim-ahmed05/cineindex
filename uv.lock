@@ -99,7 +99,7 @@ wheels = [
 
 [[package]]
 name = "cineindex"
-version = "0.2.0"
+version = "0.2.5"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
