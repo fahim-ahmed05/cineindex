@@ -40,6 +40,11 @@ ROOTS_JSON = CONFIG_DIR / "roots.json"
 
 EPISODE_REGEX = re.compile(r"[sS](\d{1,2})[ ._-]*[eE](\d{1,3})")
 
+# Patterns where dots should NOT be converted to spaces (e.g., audio formats, video bitrates)
+DOT_BLOCKLIST_PATTERNS = [
+    r"\d+\.\d+",  # e.g., "5.1" (audio), "2.0" (stereo), "1080.60" (framerate)
+]
+
 T = TypeVar("T")
 
 
@@ -184,17 +189,41 @@ def _tree_init() -> dict:
     return {"children": {}, "files": []}
 
 
-def _pretty_filename(fname: str) -> str:
-    # Present filenames nicely in the tree: replace dots used as word
-    # separators with spaces, but preserve the file extension (last dot).
+def _pretty_filename(fname: str, dots_to_spaces: bool = False) -> str:
+    """
+    Present filenames nicely: optionally replace dots used as word separators with spaces,
+    but preserve the file extension (last dot) and any dots in blocklisted patterns.
+    """
     if not fname:
         return fname
     if "." not in fname:
         return fname
+
+    # Split on last dot to separate extension
     parts = fname.rsplit(".", 1)
     name, ext = parts[0], parts[1]
-    # Replace runs of dots with single space
-    display = " ".join([p for p in name.split(".") if p != ""]) or name
+
+    if not dots_to_spaces:
+        return fname
+
+    # Find all blocklisted patterns and mark their positions
+    blocked_ranges = set()
+    for pattern in DOT_BLOCKLIST_PATTERNS:
+        for match in re.finditer(pattern, name):
+            for i in range(match.start(), match.end()):
+                blocked_ranges.add(i)
+
+    # Replace dots with spaces, except for dots in blocked ranges
+    result = []
+    for i, char in enumerate(name):
+        if char == "." and i not in blocked_ranges:
+            result.append(" ")
+        else:
+            result.append(char)
+
+    display = "".join(result)
+    # Clean up multiple spaces (from adjacent dots or replaced dots)
+    display = " ".join([p for p in display.split() if p]) or name
     return f"{display}.{ext}"
 
 
@@ -237,7 +266,7 @@ def _tree_render_node(
                 child or _tree_init(), prefix=next_prefix, dots_to_spaces=dots_to_spaces
             )
         else:
-            display_name = _pretty_filename(name) if dots_to_spaces else name
+            display_name = _pretty_filename(name, dots_to_spaces=dots_to_spaces)
             print(Fore.GREEN + prefix + connector + display_name)
 
 
@@ -398,7 +427,7 @@ def _fzf_media_text(
     opts = root_presentation.get(entry.root, {})
     dots_to_spaces = opts.get("dots_to_spaces", False)
 
-    file_text = _pretty_filename(entry.filename) if dots_to_spaces else entry.filename
+    file_text = _pretty_filename(entry.filename, dots_to_spaces=dots_to_spaces)
     return file_text
 
 
@@ -522,14 +551,16 @@ def _pick_with_fzf(
                         # Handle tuples like (MediaEntry, score) or (MediaEntry, timestamp)
                         if isinstance(entry[0], MediaEntry):
                             e = entry[0]
-                            entries_data.append(
-                                {
-                                    "filename": e.filename,
-                                    "root": e.root,
-                                    "path": e.path,
-                                    "url": e.url,
-                                }
-                            )
+                            data_item = {
+                                "filename": e.filename,
+                                "root": e.root,
+                                "path": e.path,
+                                "url": e.url,
+                            }
+                            # Include timestamp (e.g., played_at from history) if available
+                            if len(entry) >= 2:
+                                data_item["timestamp"] = str(entry[1])
+                            entries_data.append(data_item)
                 json.dump(entries_data, pf)
                 preview_file = pf.name
 
@@ -537,14 +568,29 @@ def _pick_with_fzf(
             with tempfile.NamedTemporaryFile(
                 delete=False, mode="w", encoding="utf-8", suffix=".py"
             ) as ps:
+                # Convert path to use forward slashes for cross-platform compatibility
+                preview_file_path = Path(preview_file).as_posix()
                 ps.write(f"""
 import json
+import os
 import sys
 import re
 from pathlib import Path
+from urllib.parse import unquote
+from datetime import datetime
 
 # Reconstruct the preview function logic inline
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
+
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
+try:
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
 
 def episode_sort_key(filename):
     m = EPISODE_REGEX.search(filename)
@@ -554,15 +600,24 @@ def episode_sort_key(filename):
         return (season, episode, filename.lower())
     return (9999, 9999, filename.lower())
 
-# Read line number from fzf
-line_num = int(sys.argv[1]) if len(sys.argv) > 1 else 1
-entries_data = json.load(open('{preview_file}'))
+entries_data = json.load(open(r'{preview_file_path}'))
 
-if line_num < 1 or line_num > len(entries_data):
+line_text = sys.argv[1] if len(sys.argv) > 1 else ''
+line_index = line_text.split('\t', 1)[0].strip()
+
+if not line_index.isdigit():
     sys.exit(1)
 
-entry_data = entries_data[line_num - 1]
+entry_index = int(line_index)
+
+if entry_index < 1 or entry_index > len(entries_data):
+    sys.exit(1)
+
+entry_data = entries_data[entry_index - 1]
 filename = entry_data['filename']
+display_path = unquote(entry_data['path'])
+display_filename = unquote(entry_data['filename'])
+display_root = unquote(entry_data['root'])
 
 # Check if it's an episode
 m = EPISODE_REGEX.search(filename)
@@ -573,21 +628,48 @@ if m:
     same_season = [e for e in same_season if EPISODE_REGEX.search(e['filename'])]
     same_season.sort(key=lambda e: episode_sort_key(e['filename']))
     
+    print(f"Root: {{display_root}}")
+    print(f"Path: {{display_path}}")
+    print(f"File: {{display_filename}}")
+    print()
     print(f"Season {{season}} Episodes:")
     for ep in same_season:
         ep_m = EPISODE_REGEX.search(ep['filename'])
         if ep_m and int(ep_m.group(1)) == season:
             ep_num = int(ep_m.group(2))
-            marker = "→ " if ep['filename'] == filename else "  "
-            print(f"{{marker}}E{{ep_num:02d}}: {{ep['filename']}}")
+            marker = ">" if ep['filename'] == filename else " "
+            print(f"{{marker}} E{{ep_num:02d}}: {{unquote(ep['filename'])}}")
 else:
-    print(f"Path: {{entry_data['path']}}")
-    print(f"File: {{entry_data['filename']}}")
+    print(f"Root: {{display_root}}")
+    print(f"Path: {{display_path}}")
+    print(f"File: {{display_filename}}")
+    
+    # Show timestamp if present (e.g., played_at for history)
+    if "timestamp" in entry_data:
+        try:
+            ts_str = entry_data['timestamp']
+            dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+            human_readable = dt.strftime('%a, %b %d %Y at %I:%M %p')
+            print(f"Timestamp: {{human_readable}}")
+        except Exception:
+            try:
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
+                    try:
+                        dt = datetime.strptime(ts_str.split('.')[0], fmt)
+                        human_readable = dt.strftime('%a, %b %d %Y at %I:%M %p')
+                        print(f"Timestamp: {{human_readable}}")
+                        break
+                    except Exception:
+                        pass
+                else:
+                    print(f"Timestamp: {{ts_str}}")
+            except Exception:
+                print(f"Timestamp: {{ts_str}}")
 """)
                 preview_script = ps.name
 
-            # Add preview command (fzf passes selected line via {n})
-            cmd.extend(["--preview", f"python {preview_script} {{n}}"])
+            # Add preview command; the script reads the selected row from argv.
+            cmd.extend(["--preview", f"python {preview_script} {{}}"])
         except Exception:
             pass  # Silently skip preview on error
 
@@ -610,6 +692,11 @@ else:
         query_part = f'--query "{initial_query}" ' if initial_query else ""
         print_query = "--print-query "
         multi_part = "--multi " if multi else ""
+        preview_part = ""
+        if preview_script:
+            # Escape backslashes for Windows shell and add preview with toggle binding
+            preview_script_escaped = preview_script.replace("\\", "\\\\")
+            preview_part = f'--preview "python {preview_script_escaped} {{}}" --preview-window=hidden,wrap --bind "?:toggle-preview" '
 
         redirect_cmd = (
             f'"{fzf_bin}" --ansi --delimiter "\t" --with-nth "2,3,4" '
@@ -617,6 +704,7 @@ else:
             + query_part
             + print_query
             + multi_part
+            + preview_part
             + f'< "{input_file}" > "{output_file}"'
         )
 
@@ -1293,7 +1381,7 @@ def show_history() -> None:
             )
             picked, _ = _pick_with_fzf(
                 history,
-                lambda item: _fzf_history_text(item, root_tags, root_presentation),
+                lambda item: _fzf_media_text(item[0], root_tags, root_presentation),
                 multi=False,
                 prompt="Search: ",
                 preview_func=lambda item: _fzf_preview_text(
