@@ -172,6 +172,7 @@ def crawl_root(
         
         live_dir_urls = set()
         live_media_urls = set()
+        has_errors = False
 
         if verbose:
             print(Fore.MAGENTA + f"[CRAWL] Starting crawl for {root_cfg.url}")
@@ -207,8 +208,10 @@ def crawl_root(
                     except Exception as e:
                         if verbose:
                             print(Fore.RED + f"[CRAWL] Error processing {dir_url}: {e}")
+                        has_errors = True
                         continue
                     if parsed is None:
+                        has_errors = True
                         continue
 
                     live_dir_urls.add(dir_url)
@@ -326,7 +329,7 @@ def crawl_root(
         # Cleanup: Remove any rows from dirs and media that belong to this root
         # but were NOT encountered during this crawl. This handles files or
         # directories that were deleted from the upstream server.
-        if incremental:
+        if incremental and not has_errors:
             try:
                 # Delete stale directories
                 cur.execute("SELECT url FROM dirs WHERE root = ?", (root_cfg.url,))
