@@ -20,6 +20,7 @@ DB_PATH = DATA_DIR / "media_index.db"
 FZF_INPUT_CACHE = DATA_DIR / "fzf_input.txt"
 FZF_JSON_CACHE = DATA_DIR / "fzf_preview.json"
 FZF_SCRIPT_CACHE = DATA_DIR / "fzf_preview.py"
+FZF_EP_INDEX_CACHE = DATA_DIR / "fzf_ep_index.json"
 
 
 def get_conn() -> sqlite3.Connection:
