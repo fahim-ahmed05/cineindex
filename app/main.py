@@ -499,6 +499,7 @@ def _pick_with_fzf(
     initial_query: str | None = None,
     preview_func: Callable[[T], str] | None = None,
     all_entries: list[T] | None = None,
+    root_presentation: dict[str, dict] | None = None,
 ) -> tuple[list[T], str]:
     fzf_bin = _fzf_binary()
     if not fzf_bin or not items:
@@ -539,14 +540,19 @@ def _pick_with_fzf(
                 entries_data = []
                 for entry in all_entries:
                     if isinstance(entry, MediaEntry):
-                        entries_data.append(
-                            {
-                                "filename": entry.filename,
-                                "root": entry.root,
-                                "path": entry.path,
-                                "url": entry.url,
-                            }
-                        )
+                        data_item = {
+                            "filename": entry.filename,
+                            "root": entry.root,
+                            "path": entry.path,
+                            "url": entry.url,
+                        }
+                        # Include dots_to_spaces setting for this root
+                        if root_presentation:
+                            opts = root_presentation.get(entry.root, {})
+                            data_item["dots_to_spaces"] = opts.get(
+                                "dots_to_spaces", False
+                            )
+                        entries_data.append(data_item)
                     elif isinstance(entry, tuple) and len(entry) >= 1:
                         # Handle tuples like (MediaEntry, score) or (MediaEntry, timestamp)
                         if isinstance(entry[0], MediaEntry):
@@ -557,6 +563,12 @@ def _pick_with_fzf(
                                 "path": e.path,
                                 "url": e.url,
                             }
+                            # Include dots_to_spaces setting for this root
+                            if root_presentation:
+                                opts = root_presentation.get(e.root, {})
+                                data_item["dots_to_spaces"] = opts.get(
+                                    "dots_to_spaces", False
+                                )
                             # Include timestamp (e.g., played_at from history) if available
                             if len(entry) >= 2:
                                 data_item["timestamp"] = str(entry[1])
@@ -564,7 +576,6 @@ def _pick_with_fzf(
                 json.dump(entries_data, pf)
                 preview_file = pf.name
 
-            # Create a preview script that reconstructs entries and calls preview_func
             with tempfile.NamedTemporaryFile(
                 delete=False, mode="w", encoding="utf-8", suffix=".py"
             ) as ps:
@@ -581,6 +592,9 @@ from datetime import datetime
 
 # Reconstruct the preview function logic inline
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
+DOT_BLOCKLIST_PATTERNS = [
+    r'\\d+\\.\\d+',
+]
 
 try:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -591,6 +605,37 @@ try:
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except Exception:
     pass
+
+def pretty_filename(fname, dots_to_spaces=False):
+    if not fname or '.' not in fname:
+        return fname
+    if not dots_to_spaces:
+        return fname
+    
+    parts = fname.rsplit('.', 1)
+    name, ext = parts[0], parts[1]
+    
+    # Find blocklisted pattern positions
+    blocked_ranges = set()
+    for pattern in DOT_BLOCKLIST_PATTERNS:
+        try:
+            for match in re.finditer(pattern, name):
+                for i in range(match.start(), match.end()):
+                    blocked_ranges.add(i)
+        except Exception:
+            pass
+    
+    # Replace dots with spaces, except in blocked ranges
+    result = []
+    for i, char in enumerate(name):
+        if char == '.' and i not in blocked_ranges:
+            result.append(' ')
+        else:
+            result.append(char)
+    
+    display = ''.join(result)
+    display = ' '.join([p for p in display.split() if p]) or name
+    return f'{{display}}.{{ext}}'
 
 def episode_sort_key(filename):
     m = EPISODE_REGEX.search(filename)
@@ -603,7 +648,7 @@ def episode_sort_key(filename):
 entries_data = json.load(open(r'{preview_file_path}'))
 
 line_text = sys.argv[1] if len(sys.argv) > 1 else ''
-line_index = line_text.split('\t', 1)[0].strip()
+line_index = line_text.split('\\t', 1)[0].strip()
 
 if not line_index.isdigit():
     sys.exit(1)
@@ -616,7 +661,8 @@ if entry_index < 1 or entry_index > len(entries_data):
 entry_data = entries_data[entry_index - 1]
 filename = entry_data['filename']
 display_path = unquote(entry_data['path'])
-display_filename = unquote(entry_data['filename'])
+dots_to_spaces = entry_data.get('dots_to_spaces', False)
+display_filename = pretty_filename(unquote(entry_data['filename']), dots_to_spaces=dots_to_spaces)
 display_root = unquote(entry_data['root'])
 
 # Check if it's an episode
@@ -638,7 +684,9 @@ if m:
         if ep_m and int(ep_m.group(1)) == season:
             ep_num = int(ep_m.group(2))
             marker = ">" if ep['filename'] == filename else " "
-            print(f"{{marker}} E{{ep_num:02d}}: {{unquote(ep['filename'])}}")
+            ep_dots_to_spaces = ep.get('dots_to_spaces', False)
+            ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep_dots_to_spaces)
+            print(f"{{marker}} E{{ep_num:02d}}: {{ep_display}}")
 else:
     print(f"Root: {{display_root}}")
     print(f"Path: {{display_path}}")
@@ -1229,6 +1277,7 @@ def search_index() -> None:
                     initial_query=last_query,
                     preview_func=_fzf_preview_text,
                     all_entries=entries,
+                    root_presentation=root_presentation,
                 )
                 if not picked:
                     print()
@@ -1266,6 +1315,7 @@ def search_index() -> None:
                         initial_query=last_query,
                         preview_func=_fzf_preview_text,
                         all_entries=entries,
+                        root_presentation=root_presentation,
                     )
                     if not picked:
                         last_results = None
@@ -1326,6 +1376,7 @@ def search_index() -> None:
                     initial_query=last_query,
                     preview_func=_fzf_preview_text,
                     all_entries=entries,
+                    root_presentation=root_presentation,
                 )
                 if not picked:
                     last_results = None
@@ -1388,6 +1439,7 @@ def show_history() -> None:
                     item[0], [e[0] for e in history]
                 ),
                 all_entries=history,
+                root_presentation=root_presentation,
             )
             if picked:
                 play_entry(picked[0][0], conn)
@@ -1461,6 +1513,7 @@ def download_index() -> None:
                     initial_query=last_query,
                     preview_func=_fzf_preview_text,
                     all_entries=entries,
+                    root_presentation=root_presentation,
                 )
                 if not picked:
                     print()
@@ -1497,6 +1550,7 @@ def download_index() -> None:
                     initial_query=last_query,
                     preview_func=_fzf_preview_text,
                     all_entries=entries,
+                    root_presentation=root_presentation,
                 )
                 if not picked:
                     continue
