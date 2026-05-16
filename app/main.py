@@ -12,7 +12,16 @@ from typing import Callable, TypeVar
 
 from colorama import Fore, Style, init
 
-from app.db import init_db, get_conn, CONFIG_DIR, DATA_DIR, FZF_INPUT_CACHE, FZF_JSON_CACHE, FZF_SCRIPT_CACHE, FZF_EP_INDEX_CACHE
+from app.db import (
+    init_db,
+    get_conn,
+    CONFIG_DIR,
+    DATA_DIR,
+    FZF_INPUT_CACHE,
+    FZF_JSON_CACHE,
+    FZF_SCRIPT_CACHE,
+    FZF_EP_INDEX_CACHE,
+)
 from app.media.crawler import (
     load_root_configs,
     load_crawl_config,
@@ -81,7 +90,6 @@ def extract_show_name(filename: str) -> str | None:
 T = TypeVar("T")
 
 
-
 # ---------- Utility ----------
 
 
@@ -125,9 +133,7 @@ def ensure_config_files() -> None:
                 "decode_percent": True,
                 "dots_to_spaces": False,
                 "threads": 15,
-                "roots": [
-                    {"url": "http://example-server/movies/"}
-                ]
+                "roots": [{"url": "http://example-server/movies/"}],
             }
         ]
 
@@ -894,8 +900,37 @@ def build_dir_playlist(
 
     def _make_entry(r) -> MediaEntry:
         return MediaEntry(
-            url=r["url"], root=r["root"], path=r["path"],
-            filename=r["filename"], size=r["size"], modified=r["modified"],
+            url=r["url"],
+            root=r["root"],
+            path=r["path"],
+            filename=r["filename"],
+            size=r["size"],
+            modified=r["modified"],
+        )
+
+    def _path_parts(path: str) -> list[str]:
+        return [p for p in path.strip("/").split("/") if p]
+
+    def _path_leaf(path: str) -> str:
+        parts = _path_parts(path)
+        return parts[-1].lower() if parts else ""
+
+    def _path_parent_leaf(path: str) -> str:
+        parts = _path_parts(path)
+        return parts[-2].lower() if len(parts) >= 2 else ""
+
+    selected_leaf = _path_leaf(entry.path)
+    selected_parent = _path_parent_leaf(entry.path)
+
+    def _variant_rank(ep: MediaEntry) -> tuple[int, int, int]:
+        # Prefer same parent folder (e.g. English/Dual Audio), then same season folder,
+        # then same root as a tie-breaker.
+        return (
+            int(
+                _path_parent_leaf(ep.path) == selected_parent and selected_parent != ""
+            ),
+            int(_path_leaf(ep.path) == selected_leaf and selected_leaf != ""),
+            int(ep.root == entry.root),
         )
 
     # --- Strategy 1: cross-root show-name matching ---
@@ -904,7 +939,9 @@ def build_dir_playlist(
         target_tag = root_tags.get(entry.root)
         if target_tag:
             # Collect all roots that share the same tag
-            same_tag_roots = [url for url, tag in root_tags.items() if tag == target_tag]
+            same_tag_roots = [
+                url for url, tag in root_tags.items() if tag == target_tag
+            ]
             if same_tag_roots:
                 placeholders = ",".join("?" * len(same_tag_roots))
                 cur.execute(
@@ -917,14 +954,34 @@ def build_dir_playlist(
                 )
                 rows = cur.fetchall()
                 cross_playlist = [
-                    _make_entry(r) for r in rows
+                    _make_entry(r)
+                    for r in rows
                     if EPISODE_REGEX.search(r["filename"])
                     and extract_show_name(r["filename"]) == show_name
                 ]
                 if len(cross_playlist) >= 2:
-                    cross_playlist.sort(key=lambda e: _episode_sort_key(e.filename))
+                    # Deduplicate by (season, episode_num), preferring the selected
+                    # language/source context via parent/leaf folder matching.
+                    seen: dict[tuple, MediaEntry] = {}
+                    for ep in sorted(
+                        cross_playlist, key=lambda e: _episode_sort_key(e.filename)
+                    ):
+                        m = EPISODE_REGEX.search(ep.filename)
+                        if not m:
+                            continue
+                        ep_key = (int(m.group(1)), int(m.group(2)))
+                        if ep_key not in seen or _variant_rank(ep) > _variant_rank(
+                            seen[ep_key]
+                        ):
+                            seen[ep_key] = ep
+                    cross_playlist = sorted(
+                        seen.values(), key=lambda e: _episode_sort_key(e.filename)
+                    )
+
+                if len(cross_playlist) >= 2:
                     start_index = next(
-                        (i for i, e in enumerate(cross_playlist) if e.url == entry.url), 0
+                        (i for i, e in enumerate(cross_playlist) if e.url == entry.url),
+                        0,
                     )
                     return cross_playlist, start_index
 
@@ -943,17 +1000,32 @@ def build_dir_playlist(
     if len(ep_like) < 2:
         return [entry], 0
 
+    seen_fallback: dict[tuple, MediaEntry] = {}
+    for ep in ep_like:
+        m = EPISODE_REGEX.search(ep.filename)
+        if not m:
+            continue
+        ep_key = (int(m.group(1)), int(m.group(2)))
+        if ep_key not in seen_fallback or _variant_rank(ep) > _variant_rank(
+            seen_fallback[ep_key]
+        ):
+            seen_fallback[ep_key] = ep
+
+    playlist = list(seen_fallback.values())
+    if not playlist:
+        return [entry], 0
+
     playlist.sort(key=lambda e: _episode_sort_key(e.filename))
     start_index = next((i for i, e in enumerate(playlist) if e.url == entry.url), 0)
     return playlist, start_index
 
 
-
-
 # ---------- mpv player ----------
 
 
-def play_entry(entry: MediaEntry, conn, root_tags: dict[str, str] | None = None) -> None:
+def play_entry(
+    entry: MediaEntry, conn, root_tags: dict[str, str] | None = None
+) -> None:
     """
     Play a single entry or a series playlist with mpv.
     Honors mpv_args from config.json and loads cineindex-history.lua if present.
@@ -1154,6 +1226,7 @@ def purge_deleted_roots(conn, active_root_urls: set[str]) -> tuple[int, int]:
 
 # ---------- FZF Persistent Cache ----------
 
+
 def rebuild_fzf_cache(conn) -> None:
     print(Fore.CYAN + "\n[CACHE] Rebuilding persistent FZF cache...")
     try:
@@ -1167,7 +1240,9 @@ def rebuild_fzf_cache(conn) -> None:
         }
 
         cur = conn.cursor()
-        cur.execute("SELECT url, root, path, filename, size, modified FROM media ORDER BY rowid")
+        cur.execute(
+            "SELECT url, root, path, filename, size, modified FROM media ORDER BY rowid"
+        )
         rows = cur.fetchall()
 
         entries_data = []
@@ -1175,16 +1250,23 @@ def rebuild_fzf_cache(conn) -> None:
 
         for index, r in enumerate(rows, start=1):
             entry = MediaEntry(
-                url=r["url"], root=r["root"], path=r["path"],
-                filename=r["filename"], size=r["size"], modified=r["modified"]
+                url=r["url"],
+                root=r["root"],
+                path=r["path"],
+                filename=r["filename"],
+                size=r["size"],
+                modified=r["modified"],
             )
             display_text = _fzf_media_text(entry, root_tags, root_presentation)
             lines.append(f"{index}\t{display_text}\t{entry.url}")
 
             data_item = {
-                "filename": entry.filename, "root": entry.root,
-                "path": entry.path, "url": entry.url,
-                "size": entry.size, "modified": entry.modified,
+                "filename": entry.filename,
+                "root": entry.root,
+                "path": entry.path,
+                "url": entry.url,
+                "size": entry.size,
+                "modified": entry.modified,
                 "tag": root_tags.get(entry.root, ""),
             }
             opts = root_presentation.get(entry.root, {})
@@ -1203,7 +1285,7 @@ def rebuild_fzf_cache(conn) -> None:
             show = extract_show_name(item["filename"])
             if not show:
                 continue
-            key = f"{item.get('tag','')}\x00{show}"
+            key = f"{item.get('tag','')}|{show}"
             episode_index.setdefault(key, []).append(item)
         episode_index_json = json.dumps(episode_index)
         FZF_EP_INDEX_CACHE.write_text(episode_index_json, encoding="utf-8")
@@ -1218,12 +1300,12 @@ from urllib.parse import unquote
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 
-EPISODE_REGEX = re.compile(r'[sS](\\\\d{{1,2}})[ ._-]*[eE](\\\\d{{1,3}})')
-DOT_BLOCKLIST_PATTERNS = [r'\\\\d+\\\\.\\\\d+']
+EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
+DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+']
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
 _SHOW_NAME_STRIP_RE = re.compile(
-    r'(\\\\[.*?\\\\]|\\\\(.*?\\\\)|\\\\d{{3,4}}p|BluRay|WEBRip|HDTV|x264|x265|HEVC|AAC|DTS|AC3|'
-    r'DUAL|MULTI|ESub|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|DIRECTORS\\\\.CUT)',
+    r'(\\[.*?\\]|\\(.*?\\)|\\d{{3,4}}p|BluRay|WEBRip|HDTV|x264|x265|HEVC|AAC|DTS|AC3|'
+    r'DUAL|MULTI|ESub|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|DIRECTORS\\.CUT)',
     re.IGNORECASE,
 )
 
@@ -1282,7 +1364,7 @@ def extract_show_name(filename):
     if len(normalized) < 3: return None
     return normalized
 
-# Pre-built episode index keyed by "tag\x00show_name" — loaded from cache file
+# Pre-built episode index keyed by "tag|show_name" - loaded from cache file
 try:
     EPISODE_INDEX = json.load(open(r'{ep_index_path}', encoding='utf-8'))
 except Exception:
@@ -1319,7 +1401,7 @@ if m:
     current_show = extract_show_name(filename)
 
     if current_show and entry_tag:
-        key = entry_tag + '\x00' + current_show
+        key = entry_tag + '|' + current_show
         all_eps = EPISODE_INDEX.get(key, [])
     else:
         all_eps = [
@@ -1330,27 +1412,33 @@ if m:
 
     if len(all_eps) >= 2:
         all_eps.sort(key=lambda e: episode_sort_key(e['filename']))
-        seasons = {{}}
+
+        # Deduplicate: same episode from multiple servers -> keep same-root first, then first seen
+        entry_root = entry_data['root']
+        seen_eps = {{}}
         for ep in all_eps:
             ep_m = EPISODE_REGEX.search(ep['filename'])
-            if ep_m:
-                s = int(ep_m.group(1))
-                seasons.setdefault(s, []).append(ep)
+            if not ep_m: continue
+            ep_key = (int(ep_m.group(1)), int(ep_m.group(2)))
+            if ep_key not in seen_eps or ep['root'] == entry_root:
+                seen_eps[ep_key] = ep
+
+        seasons = {{}}
+        for (s, e_num), ep in seen_eps.items():
+            seasons.setdefault(s, []).append((e_num, ep))
 
         print()
         for s in sorted(seasons.keys()):
             if s == current_season:
                 print(f"Season {{s}}:")
-                for ep in seasons[s]:
-                    ep_m = EPISODE_REGEX.search(ep['filename'])
-                    ep_num = int(ep_m.group(2)) if ep_m else 0
-                    marker = ">" if ep['filename'] == filename else " "
-                    ep_dots = ep.get('dots_to_spaces', False)
-                    ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep_dots)
+                for ep_num, ep in sorted(seasons[s]):
+                    is_cur = ep['root'] == entry_root and ep['filename'] == filename
+                    marker = ">" if is_cur else " "
+                    ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep.get('dots_to_spaces', False))
                     print(f"{{marker}} E{{ep_num:02d}}: {{ep_display}}")
             else:
                 ep_count = len(seasons[s])
-                print(f"  Season {{s}}  ({{ep_count}} episode{{'s' if ep_count != 1 else ''}})"  )
+                print(f"  Season {{s}}  ({{ep_count}} episode{{'s' if ep_count != 1 else ''}})")
 """
         FZF_SCRIPT_CACHE.write_text(script_code, encoding="utf-8")
         print(Fore.GREEN + f"  [OK] Cached {len(rows)} entries for instant FZF search.")
@@ -1364,11 +1452,21 @@ if m:
 def _run_index(incremental: bool) -> None:
     action_name = "Update" if incremental else "Build"
     print(Fore.MAGENTA + f"\n=== CineIndex {action_name} ===\n")
-    print(Fore.CYAN + f"[{action_name.upper()}] " + ("Checking modified roots..." if incremental else "Starting full index build..."))
+    print(
+        Fore.CYAN
+        + f"[{action_name.upper()}] "
+        + (
+            "Checking modified roots..."
+            if incremental
+            else "Starting full index build..."
+        )
+    )
     init_db()
     roots_raw = load_roots_config()
     if not roots_raw:
-        print(Fore.RED + f"[{action_name.upper()}] No roots configured in roots.json.\n")
+        print(
+            Fore.RED + f"[{action_name.upper()}] No roots configured in roots.json.\n"
+        )
         return
     cfg_raw = load_config()
     root_cfgs = load_root_configs(roots_raw)
@@ -1449,7 +1547,7 @@ def _run_index(incremental: bool) -> None:
                 f"files={old_media_total}→{new_media_total} ({new_media_total - old_media_total:+})\n"
             )
         )
-        
+
         rebuild_fzf_cache(conn)
     finally:
         conn.close()
@@ -1482,27 +1580,35 @@ def show_stats() -> None:
 
 # ---------- Search ----------
 
-def _fzf_pick_persistent(prompt: str, multi: bool = False, initial_query: str = "") -> tuple[list[str], str]:
+
+def _fzf_pick_persistent(
+    prompt: str, multi: bool = False, initial_query: str = ""
+) -> tuple[list[str], str]:
     fzf_bin = _fzf_binary()
     if not fzf_bin or not FZF_INPUT_CACHE.exists() or not FZF_SCRIPT_CACHE.exists():
         return [], initial_query
 
     output_file = None
     try:
-        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=".txt") as output_handle:
+        with tempfile.NamedTemporaryFile(
+            delete=False, mode="w", encoding="utf-8", suffix=".txt"
+        ) as output_handle:
             output_file = output_handle.name
 
         query_part = f'--query "{initial_query}" ' if initial_query else ""
         print_query = "--print-query "
         multi_part = "--multi " if multi else ""
-        
+
         preview_script_escaped = FZF_SCRIPT_CACHE.as_posix().replace("\\", "\\\\")
         preview_part = f'--preview "python {preview_script_escaped} {{}}" --preview-window=hidden,wrap --bind "?:toggle-preview" '
 
         redirect_cmd = (
             f'"{fzf_bin}" --ansi --delimiter "\t" --with-nth "2" '
             f'--prompt "{prompt}" --height 70% --border --layout=reverse '
-            + query_part + print_query + multi_part + preview_part
+            + query_part
+            + print_query
+            + multi_part
+            + preview_part
             + f'< "{FZF_INPUT_CACHE}" > "{output_file}"'
         )
 
@@ -1535,34 +1641,55 @@ def _fzf_pick_persistent(prompt: str, multi: bool = False, initial_query: str = 
                 pass
 
 
-def _fzf_pick_media(entries: list | None, root_tags: dict | None, root_presentation: dict | None, prompt: str, multi: bool = False, initial_query: str = "") -> tuple[list, str]:
+def _fzf_pick_media(
+    entries: list | None,
+    root_tags: dict | None,
+    root_presentation: dict | None,
+    prompt: str,
+    multi: bool = False,
+    initial_query: str = "",
+) -> tuple[list, str]:
     if entries is None:
-        return _fzf_pick_persistent(prompt=prompt, multi=multi, initial_query=initial_query)
+        return _fzf_pick_persistent(
+            prompt=prompt, multi=multi, initial_query=initial_query
+        )
 
     def unwrap(e):
         return e[0] if isinstance(e, tuple) else e
+
     return _pick_with_fzf(
         entries,
         lambda entry: _fzf_media_text(unwrap(entry), root_tags, root_presentation),
         multi=multi,
         prompt=prompt,
         initial_query=initial_query,
-        preview_func=lambda entry: _fzf_preview_text(unwrap(entry), [unwrap(e) for e in entries]),
+        preview_func=lambda entry: _fzf_preview_text(
+            unwrap(entry), [unwrap(e) for e in entries]
+        ),
         all_entries=entries,
         root_tags=root_tags,
         root_presentation=root_presentation,
     )
 
+
 def _get_media_by_url(conn, url: str) -> MediaEntry | None:
     cur = conn.cursor()
-    cur.execute("SELECT url, root, path, filename, size, modified FROM media WHERE url = ?", (url,))
+    cur.execute(
+        "SELECT url, root, path, filename, size, modified FROM media WHERE url = ?",
+        (url,),
+    )
     r = cur.fetchone()
     if r:
         return MediaEntry(
-            url=r["url"], root=r["root"], path=r["path"],
-            filename=r["filename"], size=r["size"], modified=r["modified"]
+            url=r["url"],
+            root=r["root"],
+            path=r["path"],
+            filename=r["filename"],
+            size=r["size"],
+            modified=r["modified"],
         )
     return None
+
 
 def search_index() -> None:
     init_db()
@@ -1642,7 +1769,9 @@ def search_index() -> None:
                     if not (1 <= num <= len(last_results)):
                         print(Fore.RED + "  Out of range.\n")
                         continue
-                    entry, _ = last_results[num - 1]  # pylint: disable=unsubscriptable-object
+                    entry, _ = last_results[
+                        num - 1
+                    ]  # pylint: disable=unsubscriptable-object
                     play_entry(entry, conn, root_tags=root_tags)
                     # After mpv exits, we simply loop and re-render the same list again.
 
@@ -1715,7 +1844,9 @@ def show_history() -> None:
                 Fore.CYAN
                 + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
             )
-            picked, _ = _fzf_pick_media(history, root_tags, root_presentation, prompt="Search: ")
+            picked, _ = _fzf_pick_media(
+                history, root_tags, root_presentation, prompt="Search: "
+            )
             if picked:
                 play_entry(picked[0][0], conn, root_tags=root_tags)
             print()
@@ -1775,7 +1906,12 @@ def download_index() -> None:
 
             while True:
                 picked_urls, last_query = _fzf_pick_media(
-                    None, None, None, prompt="Search: ", multi=True, initial_query=last_query
+                    None,
+                    None,
+                    None,
+                    prompt="Search: ",
+                    multi=True,
+                    initial_query=last_query,
                 )
                 if not picked_urls:
                     print()
