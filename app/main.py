@@ -52,11 +52,16 @@ EPISODE_REGEX = re.compile(r"[sS](\d{1,2})[ ._-]*[eE](\d{1,3})")
 # Patterns where dots should NOT be converted to spaces (e.g., audio formats, video bitrates, acronyms)
 DOT_BLOCKLIST_PATTERNS = [
     r"\d+\.\d+",  # e.g., "5.1" (audio), "2.0" (stereo), "1080.60" (framerate)
-    r"[A-Z](?:\.[A-Z])+",  # e.g., "S.H.I.E.L.D", "U.N.C.L.E" (acronyms with dots)
+    r"\b(?:[A-Z]\.)+[A-Z]\b",  # e.g., "S.H.I.E.L.D", "U.N.C.L.E" (acronyms with dots)
 ]
 
 
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
+
+_METADATA_TAG_RE = re.compile(
+    r"\.(?=(?:\d{3,4}p|BluRay|WEBRip|WEB-DL|BDRip|HDRip|x264|x265|HEVC|AAC|DTS|AC3|\dCH)\b)",
+    re.IGNORECASE,
+)
 
 # Strips junk after the show name — brackets, parens, resolution tags etc.
 _SHOW_NAME_STRIP_RE = re.compile(
@@ -325,6 +330,7 @@ def _pretty_filename(fname: str, dots_to_spaces: bool = False) -> str:
             result.append(char)
 
     display = "".join(result)
+    display = _METADATA_TAG_RE.sub(" ", display)
     # Clean up multiple spaces (from adjacent dots or replaced dots)
     display = " ".join([p for p in display.split() if p]) or name
     return f"{display}.{ext}"
@@ -704,7 +710,7 @@ from email.utils import parsedate_to_datetime
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
 DOT_BLOCKLIST_PATTERNS = [
     r'\\d+\\.\\d+',
-    r'[A-Z](?:\\.[A-Z])+',  # Acronyms like S.H.I.E.L.D, U.N.C.L.E
+    r'\\b(?:[A-Z]\\.)+[A-Z]\\b',  # Acronyms like S.H.I.E.L.D, U.N.C.L.E
 ]
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
 
@@ -1329,8 +1335,9 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
-DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+', r'[A-Z](?:\\.[A-Z])+']
+DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+', r'\\b(?:[A-Z]\\.)+[A-Z]\\b']
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
+_METADATA_TAG_RE = re.compile(r'\\.(?=(?:\\d{3,4}p|BluRay|WEBRip|WEB-DL|BDRip|HDRip|x264|x265|HEVC|AAC|DTS|AC3|\\dCH)\\b)', re.IGNORECASE)
 _SHOW_NAME_STRIP_RE = re.compile(
     r'(\\[.*?\\]|\\(.*?\\)|\\d{{3,4}}p|BluRay|WEBRip|HDTV|x264|x265|HEVC|AAC|DTS|AC3|'
     r'DUAL|MULTI|ESub|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|DIRECTORS\\.CUT)',
@@ -1375,6 +1382,7 @@ def pretty_filename(fname, dots_to_spaces=False):
         if char == '.' and i not in blocked_ranges: result.append(' ')
         else: result.append(char)
     display = ''.join(result)
+    display = _METADATA_TAG_RE.sub(' ', display)
     display = ' '.join([p for p in display.split() if p]) or name
     return f'{{display}}.{{ext}}'
 
