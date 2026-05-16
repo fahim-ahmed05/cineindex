@@ -17,6 +17,9 @@ CONFIG_DIR = Path(_dirs.user_config_dir)
 DATA_DIR = Path(_dirs.user_data_dir)
 
 DB_PATH = DATA_DIR / "media_index.db"
+FZF_INPUT_CACHE = DATA_DIR / "fzf_input.txt"
+FZF_JSON_CACHE = DATA_DIR / "fzf_preview.json"
+FZF_SCRIPT_CACHE = DATA_DIR / "fzf_preview.py"
 
 
 def get_conn() -> sqlite3.Connection:

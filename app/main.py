@@ -1061,6 +1061,128 @@ def purge_deleted_roots(conn, active_root_urls: set[str]) -> tuple[int, int]:
     return removed_dirs, removed_media
 
 
+# ---------- FZF Persistent Cache ----------
+
+def rebuild_fzf_cache(conn) -> None:
+    print(Fore.CYAN + "\n[CACHE] Rebuilding persistent FZF cache...")
+    try:
+        from .db import FZF_INPUT_CACHE, FZF_JSON_CACHE, FZF_SCRIPT_CACHE
+        
+        roots_raw = load_roots_config()
+        if not roots_raw:
+            return
+        root_cfgs = load_root_configs(roots_raw)
+        root_tags = build_root_tag_map()
+        root_presentation = {
+            rc.url: {"dots_to_spaces": rc.dots_to_spaces} for rc in root_cfgs
+        }
+
+        cur = conn.cursor()
+        cur.execute("SELECT url, root, path, filename, size, modified FROM media ORDER BY rowid")
+        rows = cur.fetchall()
+
+        entries_data = []
+        lines = []
+
+        for index, r in enumerate(rows, start=1):
+            entry = MediaEntry(
+                url=r["url"], root=r["root"], path=r["path"],
+                filename=r["filename"], size=r["size"], modified=r["modified"]
+            )
+            display_text = _fzf_media_text(entry, root_tags, root_presentation)
+            lines.append(f"{index}\t{display_text}\t{entry.url}")
+
+            data_item = {
+                "filename": entry.filename, "root": entry.root,
+                "path": entry.path, "url": entry.url,
+            }
+            opts = root_presentation.get(entry.root, {})
+            data_item["dots_to_spaces"] = opts.get("dots_to_spaces", False)
+            entries_data.append(data_item)
+
+        FZF_INPUT_CACHE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        FZF_JSON_CACHE.write_text(json.dumps(entries_data), encoding="utf-8")
+
+        preview_file_path = FZF_JSON_CACHE.as_posix()
+        script_code = f"""
+import json
+import os
+import sys
+import re
+from pathlib import Path
+from urllib.parse import unquote
+from datetime import datetime
+
+EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
+DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+']
+COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
+
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
+def pretty_filename(fname, dots_to_spaces=False):
+    if not fname or '.' not in fname: return fname
+    if not dots_to_spaces: return fname
+    parts = fname.rsplit('.', 1)
+    name, ext = parts[0], parts[1]
+    blocked_ranges = set()
+    for pattern in COMPILED_DOT_BLOCKLIST:
+        try:
+            for match in pattern.finditer(name):
+                blocked_ranges.update(range(match.start(), match.end()))
+        except Exception: pass
+    result = []
+    for i, char in enumerate(name):
+        if char == '.' and i not in blocked_ranges: result.append(' ')
+        else: result.append(char)
+    display = ''.join(result)
+    display = ' '.join([p for p in display.split() if p]) or name
+    return f'{{display}}.{{ext}}'
+
+def episode_sort_key(filename):
+    m = EPISODE_REGEX.search(filename)
+    if m: return (int(m.group(1)), int(m.group(2)), filename.lower())
+    return (9999, 9999, filename.lower())
+
+entries_data = json.load(open(r'{preview_file_path}', encoding='utf-8'))
+
+line_text = sys.argv[1] if len(sys.argv) > 1 else ''
+line_index = line_text.split('\\t', 1)[0].strip()
+if not line_index.isdigit(): sys.exit(1)
+entry_index = int(line_index)
+if entry_index < 1 or entry_index > len(entries_data): sys.exit(1)
+
+entry_data = entries_data[entry_index - 1]
+filename = entry_data['filename']
+display_path = unquote(entry_data['path'])
+dots_to_spaces = entry_data.get('dots_to_spaces', False)
+display_filename = pretty_filename(unquote(entry_data['filename']), dots_to_spaces=dots_to_spaces)
+display_root = unquote(entry_data['root'])
+
+m = EPISODE_REGEX.search(filename)
+if m:
+    season = int(m.group(1))
+    same_season = [e for e in entries_data if e['path'] == entry_data['path'] and EPISODE_REGEX.search(e['filename'])]
+    same_season.sort(key=lambda e: episode_sort_key(e['filename']))
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}\\n\\nSeason {{season}} Episodes:")
+    for ep in same_season:
+        ep_m = EPISODE_REGEX.search(ep['filename'])
+        if ep_m and int(ep_m.group(1)) == season:
+            ep_num = int(ep_m.group(2))
+            marker = ">" if ep['filename'] == filename else " "
+            ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep.get('dots_to_spaces', False))
+            print(f"{{marker}} E{{ep_num:02d}}: {{ep_display}}")
+else:
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}")
+"""
+        FZF_SCRIPT_CACHE.write_text(script_code, encoding="utf-8")
+        print(Fore.GREEN + f"  [OK] Cached {len(rows)} entries for instant FZF search.")
+    except Exception as e:
+        print(Fore.RED + f"  [FAIL] Could not build FZF cache: {e}")
+
+
 # ---------- Index operations ----------
 
 
@@ -1152,6 +1274,8 @@ def _run_index(incremental: bool) -> None:
                 f"files={old_media_total}→{new_media_total} ({new_media_total - old_media_total:+})\n"
             )
         )
+        
+        rebuild_fzf_cache(conn)
     finally:
         conn.close()
 
@@ -1183,7 +1307,64 @@ def show_stats() -> None:
 
 # ---------- Search ----------
 
-def _fzf_pick_media(entries: list, root_tags: dict, root_presentation: dict, prompt: str, multi: bool = False, initial_query: str = "") -> tuple[list, str]:
+def _fzf_pick_persistent(prompt: str, multi: bool = False, initial_query: str = "") -> tuple[list[str], str]:
+    from .db import FZF_INPUT_CACHE, FZF_SCRIPT_CACHE
+    fzf_bin = _fzf_binary()
+    if not fzf_bin or not FZF_INPUT_CACHE.exists() or not FZF_SCRIPT_CACHE.exists():
+        return [], initial_query
+
+    output_file = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, mode="w", encoding="utf-8", suffix=".txt") as output_handle:
+            output_file = output_handle.name
+
+        query_part = f'--query "{initial_query}" ' if initial_query else ""
+        print_query = "--print-query "
+        multi_part = "--multi " if multi else ""
+        
+        preview_script_escaped = FZF_SCRIPT_CACHE.as_posix().replace("\\", "\\\\")
+        preview_part = f'--preview "python {preview_script_escaped} {{}}" --preview-window=hidden,wrap --bind "?:toggle-preview" '
+
+        redirect_cmd = (
+            f'"{fzf_bin}" --ansi --delimiter "\t" --with-nth "2" '
+            f'--prompt "{prompt}" --height 70% --border --layout=reverse '
+            + query_part + print_query + multi_part + preview_part
+            + f'< "{FZF_INPUT_CACHE}" > "{output_file}"'
+        )
+
+        proc = subprocess.run(redirect_cmd, shell=True)
+        if proc.returncode != 0:
+            return [], initial_query
+
+        try:
+            selected_text = Path(output_file).read_text(encoding="utf-8")
+        except OSError:
+            return [], initial_query
+
+        if not selected_text.strip():
+            return [], initial_query
+
+        lines_out = selected_text.splitlines()
+        last_query = lines_out[0] if lines_out else ""
+        selected = []
+        for line in lines_out[1:]:
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                selected.append(parts[-1].strip())
+
+        return selected, last_query
+    finally:
+        if output_file:
+            try:
+                os.remove(output_file)
+            except OSError:
+                pass
+
+
+def _fzf_pick_media(entries: list | None, root_tags: dict | None, root_presentation: dict | None, prompt: str, multi: bool = False, initial_query: str = "") -> tuple[list, str]:
+    if entries is None:
+        return _fzf_pick_persistent(prompt=prompt, multi=multi, initial_query=initial_query)
+
     def unwrap(e):
         return e[0] if isinstance(e, tuple) else e
     return _pick_with_fzf(
@@ -1197,11 +1378,46 @@ def _fzf_pick_media(entries: list, root_tags: dict, root_presentation: dict, pro
         root_presentation=root_presentation,
     )
 
+def _get_media_by_url(conn, url: str) -> MediaEntry | None:
+    cur = conn.cursor()
+    cur.execute("SELECT url, root, path, filename, size, modified FROM media WHERE url = ?", (url,))
+    r = cur.fetchone()
+    if r:
+        return MediaEntry(
+            url=r["url"], root=r["root"], path=r["path"],
+            filename=r["filename"], size=r["size"], modified=r["modified"]
+        )
+    return None
+
 def search_index() -> None:
     init_db()
     conn = get_conn()
     print(Fore.MAGENTA + "\n=== CineIndex Search ===")
     try:
+        last_query: str = ""
+
+        if _fzf_binary():
+            from .db import FZF_INPUT_CACHE
+            if not FZF_INPUT_CACHE.exists():
+                rebuild_fzf_cache(conn)
+
+            print(
+                Fore.CYAN
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
+            )
+
+            while True:
+                picked_urls, last_query = _fzf_pick_media(
+                    None, None, None, prompt="Search: ", initial_query=last_query
+                )
+                if not picked_urls:
+                    print()
+                    return
+                entry = _get_media_by_url(conn, picked_urls[0])
+                if entry:
+                    play_entry(entry, conn)
+            return
+
         print(Fore.CYAN + "\n[SEARCH] Loading media entries...")
         entries = load_media_entries(conn)
         print(Fore.GREEN + f"[SEARCH] Loaded {len(entries)} entries.\n")
@@ -1211,22 +1427,6 @@ def search_index() -> None:
 
         root_tags = build_root_tag_map()
         root_presentation = build_root_presentation_map()
-        last_query: str = ""
-
-        if _fzf_binary():
-            print(
-                Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
-            )
-
-            while True:
-                picked, last_query = _fzf_pick_media(
-                    entries, root_tags, root_presentation, prompt="Search: ", initial_query=last_query
-                )
-                if not picked:
-                    print()
-                    return
-                play_entry(picked[0], conn)
 
         choices = build_choice_list(entries)
 
@@ -1248,16 +1448,6 @@ def search_index() -> None:
         while True:
             # If we have sticky results from a previous play, re-show them first.
             if last_results:
-                if _fzf_binary():
-                    picked, last_query = _fzf_pick_media(
-                        [entry for entry, _score in last_results], root_tags, root_presentation, prompt="Stream> ", initial_query=last_query
-                    )
-                    if not picked:
-                        last_results = None
-                        continue
-                    play_entry(picked[0], conn)
-                    continue
-
                 render_results(last_results)
                 # Same selection loop, but returns to query when ENTER is pressed.
                 while True:
@@ -1272,10 +1462,12 @@ def search_index() -> None:
                         print(Fore.RED + "  Invalid selection.\n")
                         continue
                     num = int(sel)
+                    if last_results is None:
+                        break
                     if not (1 <= num <= len(last_results)):
                         print(Fore.RED + "  Out of range.\n")
                         continue
-                    entry, _ = last_results[num - 1]
+                    entry, _ = last_results[num - 1]  # pylint: disable=unsubscriptable-object
                     play_entry(entry, conn)
                     # After mpv exits, we simply loop and re-render the same list again.
 
@@ -1301,16 +1493,6 @@ def search_index() -> None:
 
             # Show and enter selection loop; after play, keep results sticky
             last_results = results
-
-            if _fzf_binary():
-                picked, last_query = _fzf_pick_media(
-                    [entry for entry, _score in results], root_tags, root_presentation, prompt="Stream> ", initial_query=last_query
-                )
-                if not picked:
-                    last_results = None
-                    continue
-                play_entry(picked[0], conn)
-                continue
 
             render_results(results)
 
@@ -1405,6 +1587,33 @@ def download_index() -> None:
     conn = get_conn()
     print(Fore.MAGENTA + "\n=== CineIndex Download ===")
     try:
+        last_query: str = ""
+
+        if _fzf_binary():
+            from .db import FZF_INPUT_CACHE
+            if not FZF_INPUT_CACHE.exists():
+                rebuild_fzf_cache(conn)
+
+            print(
+                Fore.CYAN
+                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download, Esc to exit.\n"
+            )
+
+            while True:
+                picked_urls, last_query = _fzf_pick_media(
+                    None, None, None, prompt="Search: ", multi=True, initial_query=last_query
+                )
+                if not picked_urls:
+                    print()
+                    return
+
+                for url in picked_urls:
+                    entry = _get_media_by_url(conn, url)
+                    if entry:
+                        download_entry(entry)
+                print()
+                return
+
         print(Fore.CYAN + "\n[SEARCH] Loading media entries...")
         entries = load_media_entries(conn)
         print(Fore.GREEN + f"[SEARCH] Loaded {len(entries)} entries.\n")
@@ -1414,26 +1623,6 @@ def download_index() -> None:
 
         root_tags = build_root_tag_map()
         root_presentation = build_root_presentation_map()
-        last_query: str = ""
-
-        if _fzf_binary():
-            print(
-                Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download, Esc to exit.\n"
-            )
-
-            while True:
-                picked, last_query = _fzf_pick_media(
-                    entries, root_tags, root_presentation, prompt="Search: ", multi=True, initial_query=last_query
-                )
-                if not picked:
-                    print()
-                    return
-
-                for entry in picked:
-                    download_entry(entry)
-                print()
-                return
 
         choices = build_choice_list(entries)
 
@@ -1450,18 +1639,6 @@ def download_index() -> None:
             )
             if not results:
                 print(Fore.RED + "  No matches.\n")
-                continue
-
-            if _fzf_binary():
-                picked, last_query = _fzf_pick_media(
-                    [entry for entry, _score in results], root_tags, root_presentation, prompt="Download> ", multi=True, initial_query=last_query
-                )
-                if not picked:
-                    continue
-
-                for entry in picked:
-                    download_entry(entry)
-                print()
                 continue
 
             def _render_row(index: int, row: tuple[MediaEntry, float]) -> list[str]:
