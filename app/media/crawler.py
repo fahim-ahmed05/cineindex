@@ -169,6 +169,9 @@ def crawl_root(
         inserted_files = 0
         added_files: List[Tuple[str, str, str]] = []
         skipped_dirs = 0
+        
+        live_dir_urls = set()
+        live_media_urls = set()
 
         if verbose:
             print(Fore.MAGENTA + f"[CRAWL] Starting crawl for {root_cfg.url}")
@@ -205,9 +208,13 @@ def crawl_root(
                         if verbose:
                             print(Fore.RED + f"[CRAWL] Error processing {dir_url}: {e}")
                         continue
-                        
                     if parsed is None:
                         continue
+
+                    live_dir_urls.add(dir_url)
+                    for f in parsed.files:
+                        if _should_keep_file(f.name, cfg):
+                            live_media_urls.add(f.url)
 
                     dir_modified = parsed.dir_modified
 
@@ -316,31 +323,25 @@ def crawl_root(
         conn.commit()
         elapsed = time.time() - t0
 
-        # Cleanup: in incremental mode, remove directory rows that have no
-        # media entries for this root. This keeps the DB from retaining
-        # empty/obsolete dirs when files are removed from the site.
+        # Cleanup: Remove any rows from dirs and media that belong to this root
+        # but were NOT encountered during this crawl. This handles files or
+        # directories that were deleted from the upstream server.
         if incremental:
             try:
-                cur.execute("SELECT DISTINCT path FROM media WHERE root = ?", (root_cfg.url,))
-                media_paths = {row[0] for row in cur.fetchall()}
-                
+                # Delete stale directories
                 cur.execute("SELECT url FROM dirs WHERE root = ?", (root_cfg.url,))
-                to_delete = []
-                for row in cur.fetchall():
-                    dir_url = row[0]
-                    rel_path = _path_from_root(root_cfg.url, dir_url)
-                    if rel_path not in media_paths:
-                        to_delete.append((dir_url,))
-                        
-                removed_dirs = len(to_delete)
-                if to_delete:
-                    cur.executemany("DELETE FROM dirs WHERE url = ?", to_delete)
-                
-                if removed_dirs and verbose:
-                    print(
-                        Fore.YELLOW
-                        + f"[CLEAN] Removed {removed_dirs} empty dirs for {root_cfg.url}"
-                    )
+                dirs_to_del = [(r[0],) for r in cur.fetchall() if r[0] not in live_dir_urls]
+                if dirs_to_del:
+                    cur.executemany("DELETE FROM dirs WHERE url = ?", dirs_to_del)
+
+                # Delete stale media files
+                cur.execute("SELECT url FROM media WHERE root = ?", (root_cfg.url,))
+                media_to_del = [(r[0],) for r in cur.fetchall() if r[0] not in live_media_urls]
+                if media_to_del:
+                    cur.executemany("DELETE FROM media WHERE url = ?", media_to_del)
+            except Exception as e:
+                if verbose:
+                    print(Fore.RED + f"[CRAWL] Cleanup error: {e}")
                 conn.commit()
             except Exception:
                 # Don't let cleanup failures stop the crawl
