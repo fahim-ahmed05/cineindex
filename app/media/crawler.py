@@ -23,6 +23,8 @@ class RootConfig:
     decode_percent: bool = True
     # If True, treat dots in filenames as word separators and display them as spaces
     dots_to_spaces: bool = False
+    # Max concurrent threads for crawling this root
+    threads: int = 15
 
 
 @dataclass
@@ -61,12 +63,14 @@ def load_root_configs(raw_roots: Iterable[dict]) -> List[RootConfig]:
         enabled = r.get("enabled", True)
         decode_percent = r.get("decode_percent", True)
         dots_to_spaces = r.get("dots_to_spaces", False)
+        threads = r.get("threads", 15)
         roots.append(
             RootConfig(
                 url=url,
                 enabled=bool(enabled),
                 decode_percent=bool(decode_percent),
                 dots_to_spaces=bool(dots_to_spaces),
+                threads=int(threads),
             )
         )
     return roots
@@ -178,7 +182,7 @@ def crawl_root(
             print(Fore.MAGENTA + f"[CRAWL] Starting crawl for {root_cfg.url}")
         t0 = time.time()
 
-        max_workers = 15
+        max_workers = root_cfg.threads
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_url = {}
             seen_urls = set()
