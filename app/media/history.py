@@ -66,6 +66,7 @@ def get_recent_history(
         own_conn = True
 
     try:
+        sorted_items = sorted_items[:limit]
         urls = [u for u, _t in sorted_items]
         if not urls:
             return []
