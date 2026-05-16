@@ -352,11 +352,9 @@ def _crawl_root_with_tree(
 
 def _change_text(before: int, after: int, noun: str) -> str:
     delta = after - before
-    if delta < 0:
-        return f"{noun}={before}→{after} (-{delta})"
-    if delta > 0:
-        return f"{noun}={before}→{after} (+{delta})"
-    return f"{noun}={before}→{after}"
+    if delta == 0:
+        return f"{noun}={before}→{after}"
+    return f"{noun}={before}→{after} ({delta:+})"
 
 
 def _render_numbered_items(
