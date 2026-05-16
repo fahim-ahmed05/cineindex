@@ -818,39 +818,12 @@ dots_to_spaces = entry_data.get('dots_to_spaces', False)
 display_filename = pretty_filename(unquote(entry_data['filename']), dots_to_spaces=dots_to_spaces)
 display_root = unquote(entry_data['root'])
 
-def format_size(size_value):
-    if size_value is None:
-        return ''
-    text = str(size_value).strip()
-    if not text:
-        return ''
-    match = re.match(r'^(\d+(?:\.\d+)?)\s*([A-Za-z]+)?$', text)
-    if not match:
-        return text
-    amount = float(match.group(1))
-    unit = (match.group(2) or 'KB').upper()
-    if unit == 'B':
-        amount /= 1024.0
-        unit = 'KB'
-    elif unit == 'MB':
-        amount *= 1024.0
-        unit = 'KB'
-    elif unit == 'GB':
-        amount *= 1024.0 * 1024.0
-        unit = 'KB'
-
-    if amount >= 1024.0 * 1024.0:
-        return f'{{amount / (1024.0 * 1024.0):.1f}} GB'
-    if amount >= 1024.0:
-        return f'{{amount / 1024.0:.1f}} MB'
-    return f'{{amount:.0f}} KB'
-
 size_str = entry_data.get('size')
 mod_str = entry_data.get('modified')
 timestamp_str = entry_data.get('timestamp')
 
 meta_lines = []
-if size_str: meta_lines.append(f"Size: {{format_size(size_str)}}")
+if size_str: meta_lines.append(f"Size: {{size_str}}")
 if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
 if timestamp_str: meta_lines.append(f"Played at: {{format_timestamp(timestamp_str)}}")
 meta_block = ("\\n" + "\\n".join(meta_lines)) if meta_lines else ""
@@ -1510,37 +1483,10 @@ display_filename = pretty_filename(unquote(filename), dots_to_spaces=dots_to_spa
 display_root = unquote(entry_data['root'])
 entry_tag = entry_data.get('tag', '')
 
-def format_size(size_value):
-    if size_value is None:
-        return ''
-    text = str(size_value).strip()
-    if not text:
-        return ''
-    match = re.match(r'^(\d+(?:\.\d+)?)\s*([A-Za-z]+)?$', text)
-    if not match:
-        return text
-    amount = float(match.group(1))
-    unit = (match.group(2) or 'KB').upper()
-    if unit == 'B':
-        amount /= 1024.0
-        unit = 'KB'
-    elif unit == 'MB':
-        amount *= 1024.0
-        unit = 'KB'
-    elif unit == 'GB':
-        amount *= 1024.0 * 1024.0
-        unit = 'KB'
-
-    if amount >= 1024.0 * 1024.0:
-        return f'{{amount / (1024.0 * 1024.0):.1f}} GB'
-    if amount >= 1024.0:
-        return f'{{amount / 1024.0:.1f}} MB'
-    return f'{{amount:.0f}} KB'
-
 size_str = entry_data.get('size')
 mod_str = entry_data.get('modified')
 meta_lines = []
-if size_str: meta_lines.append(f"Size: {{format_size(size_str)}}")
+if size_str: meta_lines.append(f"Size: {{size_str}}")
 if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
 meta_block = ("\\n" + "\\n".join(meta_lines)) if meta_lines else ""
 
