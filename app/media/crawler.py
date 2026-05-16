@@ -160,6 +160,7 @@ def crawl_root(
     verbose = not summary_only
 
     try:
+        session_cleanup = True
         cur = conn.cursor()
 
         if not incremental and verbose:
@@ -355,9 +356,6 @@ def crawl_root(
                 if verbose:
                     print(Fore.RED + f"[CRAWL] Cleanup error: {e}")
                 conn.commit()
-            except Exception:
-                # Don't let cleanup failures stop the crawl
-                pass
         # Always print a concise summary. When in verbose mode we include skipped count.
         if verbose:
             print(
@@ -372,5 +370,9 @@ def crawl_root(
             added_files=added_files,
         )
     finally:
+        try:
+            session.close()
+        except Exception:
+            pass
         if own_conn:
             conn.close()

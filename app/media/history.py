@@ -27,8 +27,22 @@ def get_recent_history(
         return []
 
     try:
+        # Read with shared lock (non-exclusive) to avoid blocking concurrent writes
         with LOGFILE.open("r", encoding="utf-8") as f:
-            lines = f.readlines()
+            try:
+                # Try to acquire non-blocking read lock (Windows/Unix compatible fallback)
+                import fcntl
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                except (OSError, AttributeError):
+                    pass  # Locking not supported; proceed anyway
+                lines = f.readlines()
+                try:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except (OSError, AttributeError):
+                    pass
+            except Exception:
+                lines = f.readlines()  # Fallback: read anyway if locking fails
     except OSError:
         return []
 
@@ -67,11 +81,11 @@ def get_recent_history(
 
     try:
         sorted_items = sorted_items[:limit]
-        urls = [u for u, _t in sorted_items]
+        urls = [u for u, _t in sorted_items if u and isinstance(u, str)]
         if not urls:
             return []
 
-        placeholders = ",".join("?" for _ in urls)
+        placeholders = ",".join("?" * len(urls))
         media_map: dict[str, MediaEntry] = {}
 
         cur = conn.cursor()

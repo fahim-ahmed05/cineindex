@@ -195,51 +195,88 @@ def load_roots_config() -> list[dict]:
 
 
 def load_config() -> dict:
+    """Load config.json with validated defaults to prevent silent failures."""
+    DEFAULT_CONFIG = {
+        "video_extensions": [],
+        "blocked_dirs": [],
+        "download_dir": "",
+        "mpv_args": ["--save-position-on-quit", "--fullscreen"],
+        "max_per_root": 0,
+    }
+    
     if not CONFIG_JSON.exists():
-        return {}
+        return DEFAULT_CONFIG
+    
     try:
-        return json.load(CONFIG_JSON.open("r", encoding="utf-8"))
+        loaded = json.load(CONFIG_JSON.open("r", encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            print(Fore.RED + f"[ERROR] config.json must be a JSON object")
+            return DEFAULT_CONFIG
+        # Merge loaded config with defaults, preferring loaded values
+        return {**DEFAULT_CONFIG, **loaded}
     except Exception as e:
         print(Fore.RED + f"[ERROR] Failed to load config.json: {e}")
-        return {}
+        return DEFAULT_CONFIG
 
 
 def build_root_tag_map() -> dict[str, str]:
+    """Deprecated: Use build_root_maps() instead."""
+    return build_root_maps()[0]
+
+
+def build_root_presentation_map() -> dict[str, dict]:
+    """Deprecated: Use build_root_maps() instead."""
+    return build_root_maps()[1]
+
+
+def build_root_maps() -> tuple[dict[str, str], dict[str, dict]]:
+    """Build root tag and presentation maps in a single pass to avoid redundant iteration."""
     from app.media.crawler import normalize_root_url
 
-    mapping: dict[str, str] = {}
+    tag_map: dict[str, str] = {}
+    presentation_map: dict[str, dict] = {}
+
     for r in load_roots_config():
         url = (r.get("url") or "").strip()
         if not url:
             continue
         norm = normalize_root_url(url)
+        
+        # Build tag map
         tag = (r.get("tag") or "").strip()
         if not tag:
             parsed = urlparse(norm)
             path_str = parsed.path.strip("/")
             tag = path_str.split("/")[-1] if path_str else parsed.netloc
-        mapping[norm] = tag
-    return mapping
-
-
-def build_root_presentation_map() -> dict[str, dict]:
-    """Build a map of per-root presentation options (dots_to_spaces, etc.)."""
-    from app.media.crawler import normalize_root_url
-
-    mapping: dict[str, dict] = {}
-    for r in load_roots_config():
-        url = (r.get("url") or "").strip()
-        if not url:
-            continue
-        norm = normalize_root_url(url)
-        mapping[norm] = {
+        tag_map[norm] = tag
+        
+        # Build presentation map
+        presentation_map[norm] = {
             "dots_to_spaces": r.get("dots_to_spaces", False),
         }
-    return mapping
+    
+    return tag_map, presentation_map
 
 
 def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
+
+
+def _path_parts(path: str) -> list[str]:
+    """Extract non-empty path components."""
+    return [p for p in path.strip("/").split("/") if p]
+
+
+def _path_leaf(path: str) -> str:
+    """Get the last component (leaf) of a path, lowercased."""
+    parts = _path_parts(path)
+    return parts[-1].lower() if parts else ""
+
+
+def _path_parent_leaf(path: str) -> str:
+    """Get the parent's last component (for variant/language detection), lowercased."""
+    parts = _path_parts(path)
+    return parts[-2].lower() if len(parts) >= 2 else ""
 
 
 def _tree_path_parts(path: str, decode_percent: bool = True) -> list[str]:
@@ -908,17 +945,6 @@ def build_dir_playlist(
             modified=r["modified"],
         )
 
-    def _path_parts(path: str) -> list[str]:
-        return [p for p in path.strip("/").split("/") if p]
-
-    def _path_leaf(path: str) -> str:
-        parts = _path_parts(path)
-        return parts[-1].lower() if parts else ""
-
-    def _path_parent_leaf(path: str) -> str:
-        parts = _path_parts(path)
-        return parts[-2].lower() if len(parts) >= 2 else ""
-
     selected_leaf = _path_leaf(entry.path)
     selected_parent = _path_parent_leaf(entry.path)
 
@@ -926,9 +952,7 @@ def build_dir_playlist(
         # Prefer same parent folder (e.g. English/Dual Audio), then same season folder,
         # then same root as a tie-breaker.
         return (
-            int(
-                _path_parent_leaf(ep.path) == selected_parent and selected_parent != ""
-            ),
+            int(_path_parent_leaf(ep.path) == selected_parent and selected_parent != ""),
             int(_path_leaf(ep.path) == selected_leaf and selected_leaf != ""),
             int(ep.root == entry.root),
         )
