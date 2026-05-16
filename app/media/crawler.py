@@ -117,7 +117,9 @@ def _make_session(root_cfg: RootConfig) -> requests.Session:
     return requests.Session()
 
 
-def _fetch_and_parse(session: requests.Session, url: str, verbose: bool) -> Optional[ParsedPage]:
+def _fetch_and_parse(
+    session: requests.Session, url: str, verbose: bool
+) -> Optional[ParsedPage]:
     try:
         resp = session.get(url, timeout=15)
         resp.raise_for_status()
@@ -174,7 +176,7 @@ def crawl_root(
         inserted_files = 0
         added_files: List[Tuple[str, str, str]] = []
         skipped_dirs = 0
-        
+
         live_dir_urls = set()
         live_media_urls = set()
         has_errors = False
@@ -192,7 +194,7 @@ def crawl_root(
                 if d_url in seen_urls:
                     return
                 seen_urls.add(d_url)
-                
+
                 rel = _path_from_root(root_cfg.url, d_url)
                 if _is_blocked_dir(rel, cfg):
                     if verbose:
@@ -207,8 +209,7 @@ def crawl_root(
 
             while future_to_url:
                 done, not_done = concurrent.futures.wait(
-                    future_to_url.keys(), 
-                    return_when=concurrent.futures.FIRST_COMPLETED
+                    future_to_url.keys(), return_when=concurrent.futures.FIRST_COMPLETED
                 )
 
                 for future in done:
@@ -235,7 +236,9 @@ def crawl_root(
                     if incremental:
                         if dir_modified is not None:
                             # Only attempt skip if we have a timestamp
-                            cur.execute("SELECT modified FROM dirs WHERE url = ?", (dir_url,))
+                            cur.execute(
+                                "SELECT modified FROM dirs WHERE url = ?", (dir_url,)
+                            )
                             row = cur.fetchone()
                             if row is not None and row["modified"] == dir_modified:
                                 unchanged = True
@@ -275,7 +278,16 @@ def crawl_root(
                             if not _should_keep_file(f.name, cfg):
                                 continue
 
-                            media_inserts.append((f.url, root_cfg.url, rel_path, f.name, f.modified, f.size))
+                            media_inserts.append(
+                                (
+                                    f.url,
+                                    root_cfg.url,
+                                    rel_path,
+                                    f.name,
+                                    f.modified,
+                                    f.size,
+                                )
+                            )
                             batch_files += 1
                             # Record added file (path, filename, url) for reporting
                             added_files.append((rel_path, f.name, f.url))
@@ -329,7 +341,8 @@ def crawl_root(
                         conn.commit()
                         if verbose:
                             print(
-                                Style.DIM + f"  ...progress: {processed_dirs} dirs processed, "
+                                Style.DIM
+                                + f"  ...progress: {processed_dirs} dirs processed, "
                                 f"{skipped_dirs} skipped as unchanged..."
                             )
 
@@ -343,13 +356,17 @@ def crawl_root(
             try:
                 # Delete stale directories
                 cur.execute("SELECT url FROM dirs WHERE root = ?", (root_cfg.url,))
-                dirs_to_del = [(r[0],) for r in cur.fetchall() if r[0] not in live_dir_urls]
+                dirs_to_del = [
+                    (r[0],) for r in cur.fetchall() if r[0] not in live_dir_urls
+                ]
                 if dirs_to_del:
                     cur.executemany("DELETE FROM dirs WHERE url = ?", dirs_to_del)
 
                 # Delete stale media files
                 cur.execute("SELECT url FROM media WHERE root = ?", (root_cfg.url,))
-                media_to_del = [(r[0],) for r in cur.fetchall() if r[0] not in live_media_urls]
+                media_to_del = [
+                    (r[0],) for r in cur.fetchall() if r[0] not in live_media_urls
+                ]
                 if media_to_del:
                     cur.executemany("DELETE FROM media WHERE url = ?", media_to_del)
             except Exception as e:

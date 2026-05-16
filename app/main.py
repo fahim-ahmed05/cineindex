@@ -49,9 +49,10 @@ ROOTS_JSON = CONFIG_DIR / "roots.json"
 
 EPISODE_REGEX = re.compile(r"[sS](\d{1,2})[ ._-]*[eE](\d{1,3})")
 
-# Patterns where dots should NOT be converted to spaces (e.g., audio formats, video bitrates)
+# Patterns where dots should NOT be converted to spaces (e.g., audio formats, video bitrates, acronyms)
 DOT_BLOCKLIST_PATTERNS = [
     r"\d+\.\d+",  # e.g., "5.1" (audio), "2.0" (stereo), "1080.60" (framerate)
+    r"[A-Z](?:\.[A-Z])+",  # e.g., "S.H.I.E.L.D", "U.N.C.L.E" (acronyms with dots)
 ]
 
 
@@ -203,10 +204,10 @@ def load_config() -> dict:
         "mpv_args": ["--save-position-on-quit", "--fullscreen"],
         "max_per_root": 0,
     }
-    
+
     if not CONFIG_JSON.exists():
         return DEFAULT_CONFIG
-    
+
     try:
         loaded = json.load(CONFIG_JSON.open("r", encoding="utf-8"))
         if not isinstance(loaded, dict):
@@ -241,7 +242,7 @@ def build_root_maps() -> tuple[dict[str, str], dict[str, dict]]:
         if not url:
             continue
         norm = normalize_root_url(url)
-        
+
         # Build tag map
         tag = (r.get("tag") or "").strip()
         if not tag:
@@ -249,12 +250,12 @@ def build_root_maps() -> tuple[dict[str, str], dict[str, dict]]:
             path_str = parsed.path.strip("/")
             tag = path_str.split("/")[-1] if path_str else parsed.netloc
         tag_map[norm] = tag
-        
+
         # Build presentation map
         presentation_map[norm] = {
             "dots_to_spaces": r.get("dots_to_spaces", False),
         }
-    
+
     return tag_map, presentation_map
 
 
@@ -703,6 +704,7 @@ from email.utils import parsedate_to_datetime
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
 DOT_BLOCKLIST_PATTERNS = [
     r'\\d+\\.\\d+',
+    r'[A-Z](?:\\.[A-Z])+',  # Acronyms like S.H.I.E.L.D, U.N.C.L.E
 ]
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
 
@@ -952,7 +954,9 @@ def build_dir_playlist(
         # Prefer same parent folder (e.g. English/Dual Audio), then same season folder,
         # then same root as a tie-breaker.
         return (
-            int(_path_parent_leaf(ep.path) == selected_parent and selected_parent != ""),
+            int(
+                _path_parent_leaf(ep.path) == selected_parent and selected_parent != ""
+            ),
             int(_path_leaf(ep.path) == selected_leaf and selected_leaf != ""),
             int(ep.root == entry.root),
         )
@@ -1325,7 +1329,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
-DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+']
+DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+', r'[A-Z](?:\\.[A-Z])+']
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
 _SHOW_NAME_STRIP_RE = re.compile(
     r'(\\[.*?\\]|\\(.*?\\)|\\d{{3,4}}p|BluRay|WEBRip|HDTV|x264|x265|HEVC|AAC|DTS|AC3|'

@@ -32,6 +32,7 @@ def get_recent_history(
             try:
                 # Try to acquire non-blocking read lock (Windows/Unix compatible fallback)
                 import fcntl
+
                 try:
                     fcntl.flock(f.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
                 except (OSError, AttributeError):
