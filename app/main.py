@@ -1114,13 +1114,24 @@ def play_entry(
         return
 
     # Series playlist
+    _, root_presentation = build_root_maps()
     try:
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=".m3u", mode="w", encoding="utf-8"
         ) as f:
             playlist_path = f.name
+            f.write("#EXTM3U\n")
             for e in playlist:
-                f.write(e.url + "\n")
+                root_label = root_tags.get(e.root, e.root) if root_tags else e.root
+                title = _pretty_filename(
+                    e.filename,
+                    dots_to_spaces=bool(
+                        root_presentation.get(e.root, {}).get("dots_to_spaces", False)
+                    ),
+                )
+                if root_label:
+                    title = f"{title} [{root_label}]"
+                f.write(f"#EXTINF:0,{title}\n{e.url}\n")
     except Exception as e:
         print(Fore.RED + f"  !! Failed to create playlist file: {e}")
         cmd = ["mpv", *mpv_args]
