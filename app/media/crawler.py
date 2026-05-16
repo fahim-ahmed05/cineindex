@@ -17,6 +17,11 @@ init(autoreset=True)
 class RootConfig:
     url: str
     enabled: bool = True
+    # Presentation options (controlled via roots.json)
+    # If True, decode percent-encoded paths (e.g. %20 -> space) when building display tree
+    decode_percent: bool = True
+    # If True, treat dots in filenames as word separators and display them as spaces
+    dots_to_spaces: bool = False
 
 
 @dataclass
@@ -53,7 +58,16 @@ def load_root_configs(raw_roots: Iterable[dict]) -> List[RootConfig]:
             continue
         url = normalize_root_url(url)
         enabled = r.get("enabled", True)
-        roots.append(RootConfig(url=url, enabled=bool(enabled)))
+        decode_percent = r.get("decode_percent", True)
+        dots_to_spaces = r.get("dots_to_spaces", False)
+        roots.append(
+            RootConfig(
+                url=url,
+                enabled=bool(enabled),
+                decode_percent=bool(decode_percent),
+                dots_to_spaces=bool(dots_to_spaces),
+            )
+        )
     return roots
 
 

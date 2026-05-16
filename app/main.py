@@ -80,7 +80,14 @@ def ensure_config_files() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     if not ROOTS_JSON.exists():
-        demo_roots = [{"url": "http://example-server/movies/", "tag": "Movies"}]
+        demo_roots = [
+            {
+                "url": "http://example-server/movies/",
+                "tag": "Movies",
+                "decode_percent": True,
+                "dots_to_spaces": False,
+            }
+        ]
 
         ROOTS_JSON.write_text(json.dumps(demo_roots, indent=2), encoding="utf-8")
         print(Fore.YELLOW + f"[SETUP] Created demo roots.json at {ROOTS_JSON}")
@@ -148,21 +155,46 @@ def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
 
 
-def _tree_path_parts(path: str) -> list[str]:
+def _tree_path_parts(path: str, decode_percent: bool = True) -> list[str]:
     if path == "/" or not path:
         return []
-    return [unquote(part) for part in path.strip("/").split("/") if part]
+    parts = [part for part in path.strip("/").split("/") if part]
+    if decode_percent:
+        return [unquote(part) for part in parts]
+    return parts
 
 
 def _tree_init() -> dict:
     return {"children": {}, "files": []}
 
 
-def _tree_add_file(tree: dict, rel_path: str, filename: str) -> None:
+def _pretty_filename(fname: str) -> str:
+    # Present filenames nicely in the tree: replace dots used as word
+    # separators with spaces, but preserve the file extension (last dot).
+    if not fname:
+        return fname
+    if "." not in fname:
+        return fname
+    parts = fname.rsplit(".", 1)
+    name, ext = parts[0], parts[1]
+    # Replace runs of dots with single space
+    display = " ".join([p for p in name.split(".") if p != ""]) or name
+    return f"{display}.{ext}"
+
+
+def _tree_add_file(
+    tree: dict,
+    rel_path: str,
+    filename: str,
+    *,
+    decode_percent: bool = True,
+    dots_to_spaces: bool = False,
+) -> None:
     node = tree
-    for part in _tree_path_parts(rel_path):
+    for part in _tree_path_parts(rel_path, decode_percent=decode_percent):
         node = node["children"].setdefault(part, _tree_init())
     files: list[str] = node["files"]
+    # Store the raw filename; prettification is applied at render time.
     if filename not in files:
         files.append(filename)
 
@@ -171,6 +203,7 @@ def _tree_render_node(
     node: dict,
     *,
     prefix: str = "",
+    dots_to_spaces: bool = False,
 ) -> None:
     children = list(node["children"].items())
     files = list(node["files"])
@@ -184,14 +217,19 @@ def _tree_render_node(
         if kind == "dir":
             print(Fore.CYAN + prefix + connector + name)
             next_prefix = prefix + ("    " if is_last else "│   ")
-            _tree_render_node(child or _tree_init(), prefix=next_prefix)
+            _tree_render_node(
+                child or _tree_init(), prefix=next_prefix, dots_to_spaces=dots_to_spaces
+            )
         else:
-            print(Fore.GREEN + prefix + connector + name)
+            display_name = _pretty_filename(name) if dots_to_spaces else name
+            print(Fore.GREEN + prefix + connector + display_name)
 
 
-def _tree_render_root(root_tag: str, tree: dict) -> None:
+def _tree_render_root(
+    root_tag: str, tree: dict, *, dots_to_spaces: bool = False
+) -> None:
     print(Fore.MAGENTA + root_tag)
-    _tree_render_node(tree, prefix="")
+    _tree_render_node(tree, prefix="", dots_to_spaces=dots_to_spaces)
 
 
 def _crawl_root_with_tree(
@@ -218,7 +256,16 @@ def _crawl_root_with_tree(
     def _on_new_file(_root_url: str, rel_path: str, fname: str) -> None:
         try:
             if max_per_root == 0 or live_state["printed_count"] < max_per_root:
-                _tree_add_file(live_state["tree"], rel_path, unquote(fname))
+                display_fname = (
+                    unquote(fname) if getattr(rc, "decode_percent", True) else fname
+                )
+                _tree_add_file(
+                    live_state["tree"],
+                    rel_path,
+                    display_fname,
+                    decode_percent=getattr(rc, "decode_percent", True),
+                    dots_to_spaces=getattr(rc, "dots_to_spaces", False),
+                )
                 live_state["printed_count"] += 1
             else:
                 live_state["suppressed"] += 1
@@ -236,7 +283,11 @@ def _crawl_root_with_tree(
 
     if live_state["printed_count"] > 0:
         print()
-        _tree_render_root(root_tag_map.get(rc.url, rc.url), live_state["tree"])
+        _tree_render_root(
+            root_tag_map.get(rc.url, rc.url),
+            live_state["tree"],
+            dots_to_spaces=getattr(rc, "dots_to_spaces", False),
+        )
 
     cur.execute("SELECT COUNT(*) FROM dirs WHERE root = ?", (rc.url,))
     after_dirs = cur.fetchone()[0]
