@@ -600,7 +600,7 @@ def _fzf_preview_text(entry: MediaEntry, all_entries: list[MediaEntry]) -> str:
 
         # Build output
         lines = [
-            Fore.MAGENTA + f"Season {season} Episodes:",
+            Fore.MAGENTA + f"Season {season}:",
             Fore.RESET,
         ]
         for ep in same_season:
@@ -760,6 +760,25 @@ def format_timestamp(ts_str):
         except Exception: pass
     return ts_str
 
+def format_size(size_str):
+    if not size_str: return size_str
+    s = size_str.strip().upper()
+    match = re.match(r'^([\\d\\.]+)\\s*([KMG]?B?)$', s)
+    if not match: return size_str
+    num_str, unit = match.groups()
+    try: val = float(num_str)
+    except ValueError: return size_str
+    
+    if unit in ('K', 'KB'): val *= 1024
+    elif unit in ('M', 'MB'): val *= 1024**2
+    elif unit in ('G', 'GB'): val *= 1024**3
+    
+    if val >= 1024**3: return f'{{val / 1024**3:.2f}} GB'
+    elif val >= 1024**2: return f'{{val / 1024**2:.2f}} MB'
+    elif val >= 1024: return f'{{val / 1024:.2f}} KB'
+    else: return f'{{val:.0f}} B'
+
+
 def pretty_filename(fname, dots_to_spaces=False):
     if not fname or '.' not in fname:
         return fname
@@ -823,7 +842,7 @@ mod_str = entry_data.get('modified')
 timestamp_str = entry_data.get('timestamp')
 
 meta_lines = []
-if size_str: meta_lines.append(f"Size: {{size_str}}")
+if size_str: meta_lines.append(f"Size: {{format_size(size_str)}}")
 if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
 if timestamp_str: meta_lines.append(f"Played at: {{format_timestamp(timestamp_str)}}")
 meta_block = ("\\n" + "\\n".join(meta_lines)) if meta_lines else ""
@@ -837,7 +856,7 @@ if m:
     same_season = [e for e in same_season if EPISODE_REGEX.search(e['filename'])]
     same_season.sort(key=lambda e: episode_sort_key(e['filename']))
     
-    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}{{meta_block}}\\n\\nSeason {{season}} Episodes:")
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}{{meta_block}}\\n\\nSeason {{season}}:")
     for ep in same_season:
         ep_m = EPISODE_REGEX.search(ep['filename'])
         if ep_m and int(ep_m.group(1)) == season:
@@ -1427,6 +1446,25 @@ def format_timestamp(ts_str):
         except Exception: pass
     return ts_str
 
+def format_size(size_str):
+    if not size_str: return size_str
+    s = size_str.strip().upper()
+    match = re.match(r'^([\\d\\.]+)\\s*([KMG]?B?)$', s)
+    if not match: return size_str
+    num_str, unit = match.groups()
+    try: val = float(num_str)
+    except ValueError: return size_str
+    
+    if unit in ('K', 'KB'): val *= 1024
+    elif unit in ('M', 'MB'): val *= 1024**2
+    elif unit in ('G', 'GB'): val *= 1024**3
+    
+    if val >= 1024**3: return f'{{val / 1024**3:.2f}} GB'
+    elif val >= 1024**2: return f'{{val / 1024**2:.2f}} MB'
+    elif val >= 1024: return f'{{val / 1024:.2f}} KB'
+    else: return f'{{val:.0f}} B'
+
+
 def pretty_filename(fname, dots_to_spaces=False):
     if not fname or '.' not in fname: return fname
     if not dots_to_spaces: return fname
@@ -1486,7 +1524,7 @@ entry_tag = entry_data.get('tag', '')
 size_str = entry_data.get('size')
 mod_str = entry_data.get('modified')
 meta_lines = []
-if size_str: meta_lines.append(f"Size: {{size_str}}")
+if size_str: meta_lines.append(f"Size: {{format_size(size_str)}}")
 if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
 meta_block = ("\\n" + "\\n".join(meta_lines)) if meta_lines else ""
 
