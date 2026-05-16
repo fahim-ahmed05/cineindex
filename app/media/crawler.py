@@ -274,6 +274,33 @@ def crawl_root(
 
         conn.commit()
         elapsed = time.time() - t0
+
+        # Cleanup: in incremental mode, remove directory rows that have no
+        # media entries for this root. This keeps the DB from retaining
+        # empty/obsolete dirs when files are removed from the site.
+        if incremental:
+            try:
+                cur.execute("SELECT url FROM dirs WHERE root = ?", (root_cfg.url,))
+                removed_dirs = 0
+                for row in cur.fetchall():
+                    dir_url = row[0]
+                    rel_path = _path_from_root(root_cfg.url, dir_url)
+                    cur.execute(
+                        "SELECT COUNT(*) FROM media WHERE root = ? AND path = ?",
+                        (root_cfg.url, rel_path),
+                    )
+                    if cur.fetchone()[0] == 0:
+                        cur.execute("DELETE FROM dirs WHERE url = ?", (dir_url,))
+                        removed_dirs += 1
+                if removed_dirs and verbose:
+                    print(
+                        Fore.YELLOW
+                        + f"[CLEAN] Removed {removed_dirs} empty dirs for {root_cfg.url}"
+                    )
+                conn.commit()
+            except Exception:
+                # Don't let cleanup failures stop the crawl
+                pass
         # Always print a concise summary. When in verbose mode we include skipped count.
         if verbose:
             print(
