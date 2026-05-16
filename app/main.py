@@ -544,6 +544,8 @@ def _pick_with_fzf(
                             "root": entry.root,
                             "path": entry.path,
                             "url": entry.url,
+                            "size": entry.size,
+                            "modified": entry.modified,
                         }
                         # Include dots_to_spaces setting for this root
                         if root_presentation:
@@ -561,6 +563,8 @@ def _pick_with_fzf(
                                 "root": e.root,
                                 "path": e.path,
                                 "url": e.url,
+                                "size": e.size,
+                                "modified": e.modified,
                             }
                             # Include dots_to_spaces setting for this root
                             if root_presentation:
@@ -588,6 +592,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 
 # Reconstruct the preview function logic inline
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
@@ -605,6 +610,23 @@ try:
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 except Exception:
     pass
+
+def format_timestamp(ts_str):
+    if not ts_str: return ts_str
+    try:
+        dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+        return dt.strftime('%a, %b %d %Y at %I:%M %p')
+    except Exception: pass
+    try:
+        dt = parsedate_to_datetime(ts_str)
+        return dt.strftime('%a, %b %d %Y at %I:%M %p')
+    except Exception: pass
+    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d-%b-%Y %H:%M', '%Y-%m-%d %H:%M']:
+        try:
+            dt = datetime.strptime(ts_str.split('.')[0].strip(), fmt)
+            return dt.strftime('%a, %b %d %Y at %I:%M %p')
+        except Exception: pass
+    return ts_str
 
 def pretty_filename(fname, dots_to_spaces=False):
     if not fname or '.' not in fname:
@@ -664,6 +686,16 @@ dots_to_spaces = entry_data.get('dots_to_spaces', False)
 display_filename = pretty_filename(unquote(entry_data['filename']), dots_to_spaces=dots_to_spaces)
 display_root = unquote(entry_data['root'])
 
+size_str = entry_data.get('size')
+mod_str = entry_data.get('modified')
+timestamp_str = entry_data.get('timestamp')
+
+meta_lines = []
+if size_str: meta_lines.append(f"Size: {{size_str}}")
+if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
+if timestamp_str: meta_lines.append(f"Played at: {{format_timestamp(timestamp_str)}}")
+meta_block = ("\\n" + "\\n".join(meta_lines)) if meta_lines else ""
+
 # Check if it's an episode
 m = EPISODE_REGEX.search(filename)
 if m:
@@ -673,11 +705,7 @@ if m:
     same_season = [e for e in same_season if EPISODE_REGEX.search(e['filename'])]
     same_season.sort(key=lambda e: episode_sort_key(e['filename']))
     
-    print(f"Root: {{display_root}}")
-    print(f"Path: {{display_path}}")
-    print(f"File: {{display_filename}}")
-    print()
-    print(f"Season {{season}} Episodes:")
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}{{meta_block}}\\n\\nSeason {{season}} Episodes:")
     for ep in same_season:
         ep_m = EPISODE_REGEX.search(ep['filename'])
         if ep_m and int(ep_m.group(1)) == season:
@@ -687,31 +715,7 @@ if m:
             ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep_dots_to_spaces)
             print(f"{{marker}} E{{ep_num:02d}}: {{ep_display}}")
 else:
-    print(f"Root: {{display_root}}")
-    print(f"Path: {{display_path}}")
-    print(f"File: {{display_filename}}")
-    
-    # Show timestamp if present (e.g., played_at for history)
-    if "timestamp" in entry_data:
-        try:
-            ts_str = entry_data['timestamp']
-            dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-            human_readable = dt.strftime('%a, %b %d %Y at %I:%M %p')
-            print(f"Timestamp: {{human_readable}}")
-        except Exception:
-            try:
-                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
-                    try:
-                        dt = datetime.strptime(ts_str.split('.')[0], fmt)
-                        human_readable = dt.strftime('%a, %b %d %Y at %I:%M %p')
-                        print(f"Timestamp: {{human_readable}}")
-                        break
-                    except Exception:
-                        pass
-                else:
-                    print(f"Timestamp: {{ts_str}}")
-            except Exception:
-                print(f"Timestamp: {{ts_str}}")
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}{{meta_block}}")
 """)
                 preview_script = ps.name
 
@@ -1093,6 +1097,7 @@ def rebuild_fzf_cache(conn) -> None:
             data_item = {
                 "filename": entry.filename, "root": entry.root,
                 "path": entry.path, "url": entry.url,
+                "size": entry.size, "modified": entry.modified,
             }
             opts = root_presentation.get(entry.root, {})
             data_item["dots_to_spaces"] = opts.get("dots_to_spaces", False)
@@ -1110,6 +1115,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
 DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+']
@@ -1119,6 +1125,23 @@ try:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 except Exception:
     pass
+
+def format_timestamp(ts_str):
+    if not ts_str: return ts_str
+    try:
+        dt = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+        return dt.strftime('%a, %b %d %Y at %I:%M %p')
+    except Exception: pass
+    try:
+        dt = parsedate_to_datetime(ts_str)
+        return dt.strftime('%a, %b %d %Y at %I:%M %p')
+    except Exception: pass
+    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d-%b-%Y %H:%M', '%Y-%m-%d %H:%M']:
+        try:
+            dt = datetime.strptime(ts_str.split('.')[0].strip(), fmt)
+            return dt.strftime('%a, %b %d %Y at %I:%M %p')
+        except Exception: pass
+    return ts_str
 
 def pretty_filename(fname, dots_to_spaces=False):
     if not fname or '.' not in fname: return fname
@@ -1159,12 +1182,19 @@ dots_to_spaces = entry_data.get('dots_to_spaces', False)
 display_filename = pretty_filename(unquote(entry_data['filename']), dots_to_spaces=dots_to_spaces)
 display_root = unquote(entry_data['root'])
 
+size_str = entry_data.get('size')
+mod_str = entry_data.get('modified')
+meta_lines = []
+if size_str: meta_lines.append(f"Size: {{size_str}}")
+if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
+meta_block = ("\\n" + "\\n".join(meta_lines)) if meta_lines else ""
+
 m = EPISODE_REGEX.search(filename)
 if m:
     season = int(m.group(1))
     same_season = [e for e in entries_data if e['path'] == entry_data['path'] and EPISODE_REGEX.search(e['filename'])]
     same_season.sort(key=lambda e: episode_sort_key(e['filename']))
-    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}\\n\\nSeason {{season}} Episodes:")
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}{{meta_block}}\\n\\nSeason {{season}} Episodes:")
     for ep in same_season:
         ep_m = EPISODE_REGEX.search(ep['filename'])
         if ep_m and int(ep_m.group(1)) == season:
@@ -1173,7 +1203,7 @@ if m:
             ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep.get('dots_to_spaces', False))
             print(f"{{marker}} E{{ep_num:02d}}: {{ep_display}}")
 else:
-    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}")
+    print(f"Root: {{display_root}}\\nPath: {{display_path}}\\nFile: {{display_filename}}{{meta_block}}")
 """
         FZF_SCRIPT_CACHE.write_text(script_code, encoding="utf-8")
         print(Fore.GREEN + f"  [OK] Cached {len(rows)} entries for instant FZF search.")
