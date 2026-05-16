@@ -45,6 +45,8 @@ DOT_BLOCKLIST_PATTERNS = [
     r"\d+\.\d+",  # e.g., "5.1" (audio), "2.0" (stereo), "1080.60" (framerate)
 ]
 
+COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
+
 T = TypeVar("T")
 
 
@@ -208,10 +210,9 @@ def _pretty_filename(fname: str, dots_to_spaces: bool = False) -> str:
 
     # Find all blocklisted patterns and mark their positions
     blocked_ranges = set()
-    for pattern in DOT_BLOCKLIST_PATTERNS:
-        for match in re.finditer(pattern, name):
-            for i in range(match.start(), match.end()):
-                blocked_ranges.add(i)
+    for pattern in COMPILED_DOT_BLOCKLIST:
+        for match in pattern.finditer(name):
+            blocked_ranges.update(range(match.start(), match.end()))
 
     # Replace dots with spaces, except for dots in blocked ranges
     result = []
@@ -595,6 +596,7 @@ EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
 DOT_BLOCKLIST_PATTERNS = [
     r'\\d+\\.\\d+',
 ]
+COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
 
 try:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -617,11 +619,10 @@ def pretty_filename(fname, dots_to_spaces=False):
     
     # Find blocklisted pattern positions
     blocked_ranges = set()
-    for pattern in DOT_BLOCKLIST_PATTERNS:
+    for pattern in COMPILED_DOT_BLOCKLIST:
         try:
-            for match in re.finditer(pattern, name):
-                for i in range(match.start(), match.end()):
-                    blocked_ranges.add(i)
+            for match in pattern.finditer(name):
+                blocked_ranges.update(range(match.start(), match.end()))
         except Exception:
             pass
     

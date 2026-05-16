@@ -226,23 +226,12 @@ def crawl_root(
                     (root_cfg.url, rel_path),
                 )
 
+                media_inserts = []
                 for f in parsed.files:
                     if not _should_keep_file(f.name, cfg):
                         continue
 
-                    cur.execute(
-                        """
-                        INSERT INTO media (url, root, path, filename, modified, size)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(url) DO UPDATE SET
-                            root=excluded.root,
-                            path=excluded.path,
-                            filename=excluded.filename,
-                            modified=excluded.modified,
-                            size=excluded.size
-                        """,
-                        (f.url, root_cfg.url, rel_path, f.name, f.modified, f.size),
-                    )
+                    media_inserts.append((f.url, root_cfg.url, rel_path, f.name, f.modified, f.size))
                     batch_files += 1
                     # Record added file (path, filename, url) for reporting
                     added_files.append((rel_path, f.name, f.url))
@@ -254,6 +243,20 @@ def crawl_root(
                             # Reporter errors shouldn't stop crawling
                             pass
 
+                if media_inserts:
+                    cur.executemany(
+                        """
+                        INSERT INTO media (url, root, path, filename, modified, size)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(url) DO UPDATE SET
+                            root=excluded.root,
+                            path=excluded.path,
+                            filename=excluded.filename,
+                            modified=excluded.modified,
+                            size=excluded.size
+                        """,
+                        media_inserts,
+                    )
                 inserted_files += batch_files
 
             processed_dirs += 1
@@ -294,18 +297,21 @@ def crawl_root(
         # empty/obsolete dirs when files are removed from the site.
         if incremental:
             try:
+                cur.execute("SELECT DISTINCT path FROM media WHERE root = ?", (root_cfg.url,))
+                media_paths = {row[0] for row in cur.fetchall()}
+                
                 cur.execute("SELECT url FROM dirs WHERE root = ?", (root_cfg.url,))
-                removed_dirs = 0
+                to_delete = []
                 for row in cur.fetchall():
                     dir_url = row[0]
                     rel_path = _path_from_root(root_cfg.url, dir_url)
-                    cur.execute(
-                        "SELECT COUNT(*) FROM media WHERE root = ? AND path = ?",
-                        (root_cfg.url, rel_path),
-                    )
-                    if cur.fetchone()[0] == 0:
-                        cur.execute("DELETE FROM dirs WHERE url = ?", (dir_url,))
-                        removed_dirs += 1
+                    if rel_path not in media_paths:
+                        to_delete.append((dir_url,))
+                        
+                removed_dirs = len(to_delete)
+                if to_delete:
+                    cur.executemany("DELETE FROM dirs WHERE url = ?", to_delete)
+                
                 if removed_dirs and verbose:
                     print(
                         Fore.YELLOW
