@@ -1064,23 +1064,22 @@ def purge_deleted_roots(conn, active_root_urls: set[str]) -> tuple[int, int]:
 # ---------- Index operations ----------
 
 
-def build_index() -> None:
-    print(Fore.MAGENTA + "\n=== CineIndex Build ===\n")
-    print(Fore.CYAN + "[BUILD] Starting full index build...")
+def _run_index(incremental: bool) -> None:
+    action_name = "Update" if incremental else "Build"
+    print(Fore.MAGENTA + f"\n=== CineIndex {action_name} ===\n")
+    print(Fore.CYAN + f"[{action_name.upper()}] " + ("Checking modified roots..." if incremental else "Starting full index build..."))
     init_db()
     roots_raw = load_roots_config()
     if not roots_raw:
-        print(Fore.RED + "[BUILD] No roots configured in roots.json.\n")
+        print(Fore.RED + f"[{action_name.upper()}] No roots configured in roots.json.\n")
         return
     cfg_raw = load_config()
     root_cfgs = load_root_configs(roots_raw)
     crawl_cfg = load_crawl_config(cfg_raw)
-    # Determine max per-root live prints (0 = unlimited). Can be set in config.json
     try:
         max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
     except Exception:
         max_per_root = 0
-    # Which roots to actually crawl (respect 'enabled' flag); keep all roots for purge
     crawl_targets = [rc for rc in root_cfgs if getattr(rc, "enabled", True)]
     conn = get_conn()
     try:
@@ -1114,18 +1113,29 @@ def build_index() -> None:
                 crawl_cfg=crawl_cfg,
                 conn=conn,
                 root_tag_map=root_tag_map,
-                incremental=False,
+                incremental=incremental,
                 max_per_root=max_per_root,
             )
 
-            print(
-                Fore.GREEN
-                + (
-                    f"[BUILD] {index}/{total_roots} done | root={rc.url} | "
-                    f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
-                    f"time={elapsed_seconds:.1f}s"
+            if incremental:
+                print(
+                    Fore.GREEN
+                    + (
+                        f"[{action_name.upper()}] {index}/{total_roots} done | root={rc.url} | "
+                        f"{_change_text(before_dirs, after_dirs, 'dirs')}, "
+                        f"{_change_text(before_media, after_media, 'files')}, "
+                        f"time={elapsed_seconds:.1f}s"
+                    )
                 )
-            )
+            else:
+                print(
+                    Fore.GREEN
+                    + (
+                        f"[{action_name.upper()}] {index}/{total_roots} done | root={rc.url} | "
+                        f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
+                        f"time={elapsed_seconds:.1f}s"
+                    )
+                )
 
             if suppressed > 0:
                 print(Fore.YELLOW + f"  ... +{suppressed} more omitted for this root")
@@ -1137,94 +1147,21 @@ def build_index() -> None:
         print(
             Fore.MAGENTA
             + (
-                f"[BUILD] Summary: roots={total_roots}, "
+                f"[{action_name.upper()}] Summary: roots={total_roots}, "
                 f"dirs={old_dirs_total}→{new_dirs_total} ({new_dirs_total - old_dirs_total:+}), "
                 f"files={old_media_total}→{new_media_total} ({new_media_total - old_media_total:+})\n"
             )
         )
     finally:
         conn.close()
+
+
+def build_index() -> None:
+    _run_index(incremental=False)
 
 
 def update_index() -> None:
-    print(Fore.MAGENTA + "\n=== CineIndex Update ===\n")
-    print(Fore.CYAN + "[UPDATE] Checking modified roots...")
-    init_db()
-    roots_raw = load_roots_config()
-    if not roots_raw:
-        print(Fore.RED + "[UPDATE] No roots configured in roots.json.\n")
-        return
-    cfg_raw = load_config()
-    root_cfgs = load_root_configs(roots_raw)
-    crawl_cfg = load_crawl_config(cfg_raw)
-    try:
-        max_per_root = int(cfg_raw.get("max_per_root", 0) or 0)
-    except Exception:
-        max_per_root = 0
-    crawl_targets = [rc for rc in root_cfgs if getattr(rc, "enabled", True)]
-    conn = get_conn()
-    try:
-        total_roots = len(crawl_targets)
-        active_roots = {rc.url for rc in root_cfgs}
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM dirs")
-        old_dirs_total = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM media")
-        old_media_total = cur.fetchone()[0]
-        removed_dirs, removed_media = purge_deleted_roots(conn, active_roots)
-
-        if not crawl_targets:
-            print(
-                Fore.YELLOW
-                + "No enabled roots to crawl (check 'enabled' in roots.json).\n"
-            )
-            return
-
-        root_tag_map = build_root_tag_map()
-        for index, rc in enumerate(crawl_targets, start=1):
-            (
-                before_dirs,
-                after_dirs,
-                before_media,
-                after_media,
-                elapsed_seconds,
-                suppressed,
-            ) = _crawl_root_with_tree(
-                rc,
-                crawl_cfg=crawl_cfg,
-                conn=conn,
-                root_tag_map=root_tag_map,
-                incremental=True,
-                max_per_root=max_per_root,
-            )
-
-            print(
-                Fore.GREEN
-                + (
-                    f"[UPDATE] {index}/{total_roots} done | root={rc.url} | "
-                    f"{_change_text(before_dirs, after_dirs, 'dirs')}, "
-                    f"{_change_text(before_media, after_media, 'files')}, "
-                    f"time={elapsed_seconds:.1f}s"
-                )
-            )
-
-            if suppressed > 0:
-                print(Fore.YELLOW + f"  ... +{suppressed} more omitted for this root")
-
-        cur.execute("SELECT COUNT(*) FROM dirs")
-        new_dirs_total = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM media")
-        new_media_total = cur.fetchone()[0]
-        print(
-            Fore.MAGENTA
-            + (
-                f"[UPDATE] Summary: roots={total_roots}, "
-                f"dirs={old_dirs_total}→{new_dirs_total} ({new_dirs_total - old_dirs_total:+}), "
-                f"files={old_media_total}→{new_media_total} ({new_media_total - old_media_total:+})\n"
-            )
-        )
-    finally:
-        conn.close()
+    _run_index(incremental=True)
 
 
 def show_stats() -> None:
@@ -1246,6 +1183,19 @@ def show_stats() -> None:
 
 # ---------- Search ----------
 
+def _fzf_pick_media(entries: list, root_tags: dict, root_presentation: dict, prompt: str, multi: bool = False, initial_query: str = "") -> tuple[list, str]:
+    def unwrap(e):
+        return e[0] if isinstance(e, tuple) else e
+    return _pick_with_fzf(
+        entries,
+        lambda entry: _fzf_media_text(unwrap(entry), root_tags, root_presentation),
+        multi=multi,
+        prompt=prompt,
+        initial_query=initial_query,
+        preview_func=lambda entry: _fzf_preview_text(unwrap(entry), [unwrap(e) for e in entries]),
+        all_entries=entries,
+        root_presentation=root_presentation,
+    )
 
 def search_index() -> None:
     init_db()
@@ -1270,15 +1220,8 @@ def search_index() -> None:
             )
 
             while True:
-                picked, last_query = _pick_with_fzf(
-                    entries,
-                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
-                    multi=False,
-                    prompt="Search: ",
-                    initial_query=last_query,
-                    preview_func=_fzf_preview_text,
-                    all_entries=entries,
-                    root_presentation=root_presentation,
+                picked, last_query = _fzf_pick_media(
+                    entries, root_tags, root_presentation, prompt="Search: ", initial_query=last_query
                 )
                 if not picked:
                     print()
@@ -1306,17 +1249,8 @@ def search_index() -> None:
             # If we have sticky results from a previous play, re-show them first.
             if last_results:
                 if _fzf_binary():
-                    picked, last_query = _pick_with_fzf(
-                        [entry for entry, _score in last_results],
-                        lambda entry: _fzf_media_text(
-                            entry, root_tags, root_presentation
-                        ),
-                        multi=False,
-                        prompt="Stream> ",
-                        initial_query=last_query,
-                        preview_func=_fzf_preview_text,
-                        all_entries=entries,
-                        root_presentation=root_presentation,
+                    picked, last_query = _fzf_pick_media(
+                        [entry for entry, _score in last_results], root_tags, root_presentation, prompt="Stream> ", initial_query=last_query
                     )
                     if not picked:
                         last_results = None
@@ -1369,15 +1303,8 @@ def search_index() -> None:
             last_results = results
 
             if _fzf_binary():
-                picked, last_query = _pick_with_fzf(
-                    [entry for entry, _score in results],
-                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
-                    multi=False,
-                    prompt="Stream> ",
-                    initial_query=last_query,
-                    preview_func=_fzf_preview_text,
-                    all_entries=entries,
-                    root_presentation=root_presentation,
+                picked, last_query = _fzf_pick_media(
+                    [entry for entry, _score in results], root_tags, root_presentation, prompt="Stream> ", initial_query=last_query
                 )
                 if not picked:
                     last_results = None
@@ -1431,17 +1358,7 @@ def show_history() -> None:
                 Fore.CYAN
                 + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
             )
-            picked, _ = _pick_with_fzf(
-                history,
-                lambda item: _fzf_media_text(item[0], root_tags, root_presentation),
-                multi=False,
-                prompt="Search: ",
-                preview_func=lambda item: _fzf_preview_text(
-                    item[0], [e[0] for e in history]
-                ),
-                all_entries=history,
-                root_presentation=root_presentation,
-            )
+            picked, _ = _fzf_pick_media(history, root_tags, root_presentation, prompt="Search: ")
             if picked:
                 play_entry(picked[0][0], conn)
             print()
@@ -1506,15 +1423,8 @@ def download_index() -> None:
             )
 
             while True:
-                picked, last_query = _pick_with_fzf(
-                    entries,
-                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
-                    multi=True,
-                    prompt="Search: ",
-                    initial_query=last_query,
-                    preview_func=_fzf_preview_text,
-                    all_entries=entries,
-                    root_presentation=root_presentation,
+                picked, last_query = _fzf_pick_media(
+                    entries, root_tags, root_presentation, prompt="Search: ", multi=True, initial_query=last_query
                 )
                 if not picked:
                     print()
@@ -1543,15 +1453,8 @@ def download_index() -> None:
                 continue
 
             if _fzf_binary():
-                picked, last_query = _pick_with_fzf(
-                    [entry for entry, _score in results],
-                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
-                    multi=True,
-                    prompt="Download> ",
-                    initial_query=last_query,
-                    preview_func=_fzf_preview_text,
-                    all_entries=entries,
-                    root_presentation=root_presentation,
+                picked, last_query = _fzf_pick_media(
+                    [entry for entry, _score in results], root_tags, root_presentation, prompt="Download> ", multi=True, initial_query=last_query
                 )
                 if not picked:
                     continue

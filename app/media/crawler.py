@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, List, Tuple, Callable
 import time
+import concurrent.futures
 
 import requests
 from colorama import Fore, Style, init
 
 from ..db import get_conn
-from .parser import parse_directory_page
+from .parser import parse_directory_page, ParsedPage
 
 init(autoreset=True)
 
@@ -112,14 +113,16 @@ def _make_session(root_cfg: RootConfig) -> requests.Session:
     return requests.Session()
 
 
-def _fetch_page(session: requests.Session, url: str) -> Optional[str]:
+def _fetch_and_parse(session: requests.Session, url: str, verbose: bool) -> Optional[ParsedPage]:
     try:
         resp = session.get(url, timeout=15)
         resp.raise_for_status()
-        return resp.text
+        html = resp.text
     except Exception as e:
-        print(Fore.RED + f"[CRAWL] Error fetching {url}: {e}")
+        if verbose:
+            print(Fore.RED + f"[CRAWL] Error fetching {url}: {e}")
         return None
+    return parse_directory_page(html, url, verbose=verbose)
 
 
 def crawl_root(
@@ -171,123 +174,144 @@ def crawl_root(
             print(Fore.MAGENTA + f"[CRAWL] Starting crawl for {root_cfg.url}")
         t0 = time.time()
 
-        while queue:
-            dir_url, parent_url = queue.pop(0)
-            rel_path = _path_from_root(root_cfg.url, dir_url)
+        max_workers = 15
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_url = {}
 
-            if _is_blocked_dir(rel_path, cfg):
-                if verbose:
-                    print(Fore.YELLOW + f"[SKIP] Blocked dir: {rel_path}")
-                continue
+            def submit_job(d_url, p_url):
+                rel = _path_from_root(root_cfg.url, d_url)
+                if _is_blocked_dir(rel, cfg):
+                    if verbose:
+                        print(Fore.YELLOW + f"[SKIP] Blocked dir: {rel}")
+                    return
+                # Pass verbose=False to worker to avoid interleaved terminal output
+                future = executor.submit(_fetch_and_parse, session, d_url, False)
+                future_to_url[future] = (d_url, p_url, rel)
 
-            html = _fetch_page(session, dir_url)
-            if html is None:
-                continue
+            while queue:
+                submit_job(*queue.pop(0))
 
-            parsed = parse_directory_page(html, dir_url, verbose=verbose)
-            dir_modified = parsed.dir_modified
-
-            unchanged = False
-            if incremental:
-                if dir_modified is not None:
-                    # Only attempt skip if we have a timestamp
-                    cur.execute("SELECT modified FROM dirs WHERE url = ?", (dir_url,))
-                    row = cur.fetchone()
-                    if row is not None and row["modified"] == dir_modified:
-                        unchanged = True
-                        skipped_dirs += 1
-
-            batch_files = 0
-
-            if not incremental or not unchanged:
-                # Either full build, or directory changed (or no timestamp)
-                cur.execute(
-                    """
-                    INSERT INTO dirs (url, root, parent, name, modified)
-                    VALUES (?, ?, ?, ?, ?)
-                    ON CONFLICT(url) DO UPDATE SET
-                        root=excluded.root,
-                        parent=excluded.parent,
-                        name=excluded.name,
-                        modified=excluded.modified
-                    """,
-                    (
-                        dir_url,
-                        root_cfg.url,
-                        parent_url,
-                        rel_path.rsplit("/", 1)[-1] if rel_path != "/" else "",
-                        dir_modified,
-                    ),
+            while future_to_url:
+                done, not_done = concurrent.futures.wait(
+                    future_to_url.keys(), 
+                    return_when=concurrent.futures.FIRST_COMPLETED
                 )
 
-                # Clear old files for this path (for this root)
-                cur.execute(
-                    "DELETE FROM media WHERE root = ? AND path = ?",
-                    (root_cfg.url, rel_path),
-                )
-
-                media_inserts = []
-                for f in parsed.files:
-                    if not _should_keep_file(f.name, cfg):
+                for future in done:
+                    dir_url, parent_url, rel_path = future_to_url.pop(future)
+                    try:
+                        parsed = future.result()
+                    except Exception as e:
+                        if verbose:
+                            print(Fore.RED + f"[CRAWL] Error processing {dir_url}: {e}")
+                        continue
+                        
+                    if parsed is None:
                         continue
 
-                    media_inserts.append((f.url, root_cfg.url, rel_path, f.name, f.modified, f.size))
-                    batch_files += 1
-                    # Record added file (path, filename, url) for reporting
-                    added_files.append((rel_path, f.name, f.url))
-                    # Notify live reporter if present
-                    if on_new_file is not None:
-                        try:
-                            on_new_file(root_cfg.url, rel_path, f.name)
-                        except Exception:
-                            # Reporter errors shouldn't stop crawling
-                            pass
+                    dir_modified = parsed.dir_modified
 
-                if media_inserts:
-                    cur.executemany(
-                        """
-                        INSERT INTO media (url, root, path, filename, modified, size)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(url) DO UPDATE SET
-                            root=excluded.root,
-                            path=excluded.path,
-                            filename=excluded.filename,
-                            modified=excluded.modified,
-                            size=excluded.size
-                        """,
-                        media_inserts,
-                    )
-                inserted_files += batch_files
+                    unchanged = False
+                    if incremental:
+                        if dir_modified is not None:
+                            # Only attempt skip if we have a timestamp
+                            cur.execute("SELECT modified FROM dirs WHERE url = ?", (dir_url,))
+                            row = cur.fetchone()
+                            if row is not None and row["modified"] == dir_modified:
+                                unchanged = True
+                                skipped_dirs += 1
 
-            processed_dirs += 1
+                    batch_files = 0
 
-            # Status output (verbose only)
-            if verbose:
-                print(Fore.CYAN + f"[DIR] {dir_url}")
-                if unchanged and incremental:
-                    print(
-                        Fore.YELLOW
-                        + "  - unchanged (timestamp match), skipping files; descending into subdirs."
-                    )
-                else:
-                    print(
-                        Fore.GREEN
-                        + f"  - indexed {batch_files} files"
-                        + Fore.YELLOW
-                        + f", {len(parsed.subdirs)} subdirs"
-                    )
+                    if not incremental or not unchanged:
+                        # Either full build, or directory changed (or no timestamp)
+                        cur.execute(
+                            """
+                            INSERT INTO dirs (url, root, parent, name, modified)
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT(url) DO UPDATE SET
+                                root=excluded.root,
+                                parent=excluded.parent,
+                                name=excluded.name,
+                                modified=excluded.modified
+                            """,
+                            (
+                                dir_url,
+                                root_cfg.url,
+                                parent_url,
+                                rel_path.rsplit("/", 1)[-1] if rel_path != "/" else "",
+                                dir_modified,
+                            ),
+                        )
 
-            # Always descend into subdirectories, even if this dir was unchanged
-            for d in parsed.subdirs:
-                queue.append((d.url, dir_url))
+                        # Clear old files for this path (for this root)
+                        cur.execute(
+                            "DELETE FROM media WHERE root = ? AND path = ?",
+                            (root_cfg.url, rel_path),
+                        )
 
-            if processed_dirs % 20 == 0:
-                conn.commit()
-                if verbose:
-                    print(
-                        Style.DIM + f"  ...progress: {processed_dirs} dirs processed, "
-                        f"{skipped_dirs} skipped as unchanged..."
-                    )
+                        media_inserts = []
+                        for f in parsed.files:
+                            if not _should_keep_file(f.name, cfg):
+                                continue
+
+                            media_inserts.append((f.url, root_cfg.url, rel_path, f.name, f.modified, f.size))
+                            batch_files += 1
+                            # Record added file (path, filename, url) for reporting
+                            added_files.append((rel_path, f.name, f.url))
+                            # Notify live reporter if present
+                            if on_new_file is not None:
+                                try:
+                                    on_new_file(root_cfg.url, rel_path, f.name)
+                                except Exception:
+                                    # Reporter errors shouldn't stop crawling
+                                    pass
+
+                        if media_inserts:
+                            cur.executemany(
+                                """
+                                INSERT INTO media (url, root, path, filename, modified, size)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(url) DO UPDATE SET
+                                    root=excluded.root,
+                                    path=excluded.path,
+                                    filename=excluded.filename,
+                                    modified=excluded.modified,
+                                    size=excluded.size
+                                """,
+                                media_inserts,
+                            )
+                        inserted_files += batch_files
+
+                    processed_dirs += 1
+
+                    # Status output (verbose only)
+                    if verbose:
+                        print(Fore.CYAN + f"[DIR] {dir_url}")
+                        if unchanged and incremental:
+                            print(
+                                Fore.YELLOW
+                                + "  - unchanged (timestamp match), skipping files; descending into subdirs."
+                            )
+                        else:
+                            print(
+                                Fore.GREEN
+                                + f"  - indexed {batch_files} files"
+                                + Fore.YELLOW
+                                + f", {len(parsed.subdirs)} subdirs"
+                            )
+
+                    # Always descend into subdirectories, even if this dir was unchanged
+                    for d in parsed.subdirs:
+                        submit_job(d.url, dir_url)
+
+                    if processed_dirs % 20 == 0:
+                        conn.commit()
+                        if verbose:
+                            print(
+                                Style.DIM + f"  ...progress: {processed_dirs} dirs processed, "
+                                f"{skipped_dirs} skipped as unchanged..."
+                            )
 
         conn.commit()
         elapsed = time.time() - t0
