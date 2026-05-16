@@ -151,6 +151,22 @@ def build_root_tag_map() -> dict[str, str]:
     return mapping
 
 
+def build_root_presentation_map() -> dict[str, dict]:
+    """Build a map of per-root presentation options (dots_to_spaces, etc.)."""
+    from app.media.crawler import normalize_root_url
+
+    mapping: dict[str, dict] = {}
+    for r in load_roots_config():
+        url = (r.get("url") or "").strip()
+        if not url:
+            continue
+        norm = normalize_root_url(url)
+        mapping[norm] = {
+            "dots_to_spaces": r.get("dots_to_spaces", False),
+        }
+    return mapping
+
+
 def _fzf_binary() -> str | None:
     return shutil.which("fzf") or shutil.which("fzf.exe")
 
@@ -371,19 +387,37 @@ def _fzf_tag(
 
 
 def _fzf_media_text(
-    entry: MediaEntry, root_tags: dict[str, str], *, file_width: int = 80
+    entry: MediaEntry,
+    root_tags: dict[str, str],
+    root_presentation: dict[str, dict] | None = None,
+    *,
+    file_width: int = 80,
 ) -> str:
+    if root_presentation is None:
+        root_presentation = {}
+    opts = root_presentation.get(entry.root, {})
+    dots_to_spaces = opts.get("dots_to_spaces", False)
+
     dir_label = _dir_label_from_path(entry.path)
     root_label = root_tags.get(entry.root, entry.root)
-    file_text = entry.filename
+    file_text = _pretty_filename(entry.filename) if dots_to_spaces else entry.filename
     dir_text = _ansi_rgb(dir_label, 136, 192, 208, bold=True)
     root_text = _ansi_rgb(root_label, 94, 129, 172)
     return f"{file_text}    {dir_text}    {root_text}"
 
 
-def _fzf_history_text(item: tuple[MediaEntry, str], root_tags: dict[str, str]) -> str:
+def _fzf_history_text(
+    item: tuple[MediaEntry, str],
+    root_tags: dict[str, str],
+    root_presentation: dict[str, dict] | None = None,
+) -> str:
+    if root_presentation is None:
+        root_presentation = {}
     entry, played_at = item
-    file_text = entry.filename
+    opts = root_presentation.get(entry.root, {})
+    dots_to_spaces = opts.get("dots_to_spaces", False)
+
+    file_text = _pretty_filename(entry.filename) if dots_to_spaces else entry.filename
     dir_label = _dir_label_from_path(entry.path)
     dir_text = _ansi_rgb(dir_label, 136, 192, 208, bold=True)
     root_label = root_tags.get(entry.root, entry.root)
@@ -959,6 +993,7 @@ def search_index() -> None:
             return
 
         root_tags = build_root_tag_map()
+        root_presentation = build_root_presentation_map()
         last_query: str = ""
 
         if _fzf_binary():
@@ -970,7 +1005,7 @@ def search_index() -> None:
             while True:
                 picked, last_query = _pick_with_fzf(
                     entries,
-                    lambda entry: _fzf_media_text(entry, root_tags),
+                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
                     multi=False,
                     prompt="Search: ",
                     initial_query=last_query,
@@ -1003,7 +1038,9 @@ def search_index() -> None:
                 if _fzf_binary():
                     picked, last_query = _pick_with_fzf(
                         [entry for entry, _score in last_results],
-                        lambda entry: _fzf_media_text(entry, root_tags),
+                        lambda entry: _fzf_media_text(
+                            entry, root_tags, root_presentation
+                        ),
                         multi=False,
                         prompt="Stream> ",
                         initial_query=last_query,
@@ -1061,7 +1098,7 @@ def search_index() -> None:
             if _fzf_binary():
                 picked, last_query = _pick_with_fzf(
                     [entry for entry, _score in results],
-                    lambda entry: _fzf_media_text(entry, root_tags),
+                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
                     multi=False,
                     prompt="Stream> ",
                     initial_query=last_query,
@@ -1110,6 +1147,7 @@ def show_history() -> None:
             return
 
         root_tags = build_root_tag_map()
+        root_presentation = build_root_presentation_map()
         print(Fore.MAGENTA + "\n=== CineIndex Watch History ===\n")
 
         if _fzf_binary():
@@ -1119,7 +1157,7 @@ def show_history() -> None:
             )
             picked, _ = _pick_with_fzf(
                 history,
-                lambda item: _fzf_history_text(item, root_tags),
+                lambda item: _fzf_history_text(item, root_tags, root_presentation),
                 multi=False,
                 prompt="Search: ",
             )
@@ -1177,6 +1215,7 @@ def download_index() -> None:
             return
 
         root_tags = build_root_tag_map()
+        root_presentation = build_root_presentation_map()
         last_query: str = ""
 
         if _fzf_binary():
@@ -1188,7 +1227,7 @@ def download_index() -> None:
             while True:
                 picked, last_query = _pick_with_fzf(
                     entries,
-                    lambda entry: _fzf_media_text(entry, root_tags),
+                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
                     multi=True,
                     prompt="Search: ",
                     initial_query=last_query,
