@@ -181,8 +181,13 @@ def crawl_root(
         max_workers = 15
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_url = {}
+            seen_urls = set()
 
             def submit_job(d_url, p_url):
+                if d_url in seen_urls:
+                    return
+                seen_urls.add(d_url)
+                
                 rel = _path_from_root(root_cfg.url, d_url)
                 if _is_blocked_dir(rel, cfg):
                     if verbose:
