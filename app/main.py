@@ -398,12 +398,8 @@ def _fzf_media_text(
     opts = root_presentation.get(entry.root, {})
     dots_to_spaces = opts.get("dots_to_spaces", False)
 
-    dir_label = _dir_label_from_path(entry.path)
-    root_label = root_tags.get(entry.root, entry.root)
     file_text = _pretty_filename(entry.filename) if dots_to_spaces else entry.filename
-    dir_text = _ansi_rgb(dir_label, 136, 192, 208, bold=True)
-    root_text = _ansi_rgb(root_label, 94, 129, 172)
-    return f"{file_text}    {dir_text}    {root_text}"
+    return file_text
 
 
 def _fzf_history_text(
@@ -426,6 +422,45 @@ def _fzf_history_text(
     return f"{file_text}    {dir_text}    {played_text}    {root_text}"
 
 
+def _fzf_preview_text(entry: MediaEntry, all_entries: list[MediaEntry]) -> str:
+    """
+    Generate preview text for fzf selection.
+    If entry is a TV show episode, show other episodes in the same season.
+    Otherwise show file details.
+    """
+    filename = entry.filename
+    m = EPISODE_REGEX.search(filename)
+
+    if m:
+        # It's an episode; show other episodes in the same season
+        season = int(m.group(1))
+        episode = int(m.group(2))
+
+        # Find all episodes in the same directory and season
+        same_dir = [
+            e for e in all_entries if e.root == entry.root and e.path == entry.path
+        ]
+        same_season = [e for e in same_dir if EPISODE_REGEX.search(e.filename)]
+        same_season.sort(key=lambda e: _episode_sort_key(e.filename))
+
+        # Build output
+        lines = [
+            Fore.MAGENTA + f"Season {season} Episodes:",
+            Fore.RESET,
+        ]
+        for ep in same_season:
+            ep_m = EPISODE_REGEX.search(ep.filename)
+            if ep_m and int(ep_m.group(1)) == season:
+                ep_num = int(ep_m.group(2))
+                marker = Fore.GREEN + "→ " if ep.filename == filename else "  "
+                lines.append(f"{marker}E{ep_num:02d}: {ep.filename}")
+
+        return "\n".join(lines)
+    else:
+        # Not an episode; show directory info
+        return f"{Fore.CYAN}Path:{Fore.RESET} {entry.path}\n{Fore.CYAN}File:{Fore.RESET} {entry.filename}"
+
+
 def _pick_with_fzf(
     items: list[T],
     item_to_text: Callable[[T], str],
@@ -433,6 +468,8 @@ def _pick_with_fzf(
     multi: bool = False,
     prompt: str = "Search: ",
     initial_query: str | None = None,
+    preview_func: Callable[[T], str] | None = None,
+    all_entries: list[T] | None = None,
 ) -> tuple[list[T], str]:
     fzf_bin = _fzf_binary()
     if not fzf_bin or not items:
@@ -460,6 +497,99 @@ def _pick_with_fzf(
     ]
     if multi:
         cmd.append("--multi")
+
+    # Prepare preview if function provided
+    preview_file = None
+    preview_script = None
+    if preview_func and all_entries:
+        try:
+            with tempfile.NamedTemporaryFile(
+                delete=False, mode="w", encoding="utf-8", suffix=".json"
+            ) as pf:
+                # Serialize all entries for the preview script
+                entries_data = []
+                for entry in all_entries:
+                    if isinstance(entry, MediaEntry):
+                        entries_data.append(
+                            {
+                                "filename": entry.filename,
+                                "root": entry.root,
+                                "path": entry.path,
+                                "url": entry.url,
+                            }
+                        )
+                    elif isinstance(entry, tuple) and len(entry) >= 1:
+                        # Handle tuples like (MediaEntry, score) or (MediaEntry, timestamp)
+                        if isinstance(entry[0], MediaEntry):
+                            e = entry[0]
+                            entries_data.append(
+                                {
+                                    "filename": e.filename,
+                                    "root": e.root,
+                                    "path": e.path,
+                                    "url": e.url,
+                                }
+                            )
+                json.dump(entries_data, pf)
+                preview_file = pf.name
+
+            # Create a preview script that reconstructs entries and calls preview_func
+            with tempfile.NamedTemporaryFile(
+                delete=False, mode="w", encoding="utf-8", suffix=".py"
+            ) as ps:
+                ps.write(f"""
+import json
+import sys
+import re
+from pathlib import Path
+
+# Reconstruct the preview function logic inline
+EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
+
+def episode_sort_key(filename):
+    m = EPISODE_REGEX.search(filename)
+    if m:
+        season = int(m.group(1))
+        episode = int(m.group(2))
+        return (season, episode, filename.lower())
+    return (9999, 9999, filename.lower())
+
+# Read line number from fzf
+line_num = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+entries_data = json.load(open('{preview_file}'))
+
+if line_num < 1 or line_num > len(entries_data):
+    sys.exit(1)
+
+entry_data = entries_data[line_num - 1]
+filename = entry_data['filename']
+
+# Check if it's an episode
+m = EPISODE_REGEX.search(filename)
+if m:
+    season = int(m.group(1))
+    # Find all episodes in same directory (just use the entries as proxy)
+    same_season = [e for e in entries_data if e['path'] == entry_data['path']]
+    same_season = [e for e in same_season if EPISODE_REGEX.search(e['filename'])]
+    same_season.sort(key=lambda e: episode_sort_key(e['filename']))
+    
+    print(f"Season {{season}} Episodes:")
+    for ep in same_season:
+        ep_m = EPISODE_REGEX.search(ep['filename'])
+        if ep_m and int(ep_m.group(1)) == season:
+            ep_num = int(ep_m.group(2))
+            marker = "→ " if ep['filename'] == filename else "  "
+            print(f"{{marker}}E{{ep_num:02d}}: {{ep['filename']}}")
+else:
+    print(f"Path: {{entry_data['path']}}")
+    print(f"File: {{entry_data['filename']}}")
+""")
+                preview_script = ps.name
+
+            # Add preview command (fzf passes selected line via {n})
+            cmd.extend(["--preview", f"python {preview_script} {{n}}"])
+        except Exception:
+            pass  # Silently skip preview on error
 
     input_file = None
     output_file = None
@@ -508,7 +638,7 @@ def _pick_with_fzf(
         )
         return [], initial_query or ""
     finally:
-        for temp_path in (input_file, output_file):
+        for temp_path in (input_file, output_file, preview_file, preview_script):
             if temp_path:
                 try:
                     os.remove(temp_path)
@@ -1009,6 +1139,8 @@ def search_index() -> None:
                     multi=False,
                     prompt="Search: ",
                     initial_query=last_query,
+                    preview_func=_fzf_preview_text,
+                    all_entries=entries,
                 )
                 if not picked:
                     print()
@@ -1044,6 +1176,8 @@ def search_index() -> None:
                         multi=False,
                         prompt="Stream> ",
                         initial_query=last_query,
+                        preview_func=_fzf_preview_text,
+                        all_entries=entries,
                     )
                     if not picked:
                         last_results = None
@@ -1102,6 +1236,8 @@ def search_index() -> None:
                     multi=False,
                     prompt="Stream> ",
                     initial_query=last_query,
+                    preview_func=_fzf_preview_text,
+                    all_entries=entries,
                 )
                 if not picked:
                     last_results = None
@@ -1160,6 +1296,10 @@ def show_history() -> None:
                 lambda item: _fzf_history_text(item, root_tags, root_presentation),
                 multi=False,
                 prompt="Search: ",
+                preview_func=lambda item: _fzf_preview_text(
+                    item[0], [e[0] for e in history]
+                ),
+                all_entries=history,
             )
             if picked:
                 play_entry(picked[0][0], conn)
@@ -1231,6 +1371,8 @@ def download_index() -> None:
                     multi=True,
                     prompt="Search: ",
                     initial_query=last_query,
+                    preview_func=_fzf_preview_text,
+                    all_entries=entries,
                 )
                 if not picked:
                     print()
@@ -1261,10 +1403,12 @@ def download_index() -> None:
             if _fzf_binary():
                 picked, last_query = _pick_with_fzf(
                     [entry for entry, _score in results],
-                    lambda entry: _fzf_media_text(entry, root_tags),
+                    lambda entry: _fzf_media_text(entry, root_tags, root_presentation),
                     multi=True,
-                    prompt="Search: ",
+                    prompt="Download> ",
                     initial_query=last_query,
+                    preview_func=_fzf_preview_text,
+                    all_entries=entries,
                 )
                 if not picked:
                     continue
