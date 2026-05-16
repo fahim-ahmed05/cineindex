@@ -256,7 +256,7 @@ def build_root_maps() -> tuple[dict[str, str], dict[str, dict]]:
             parsed = urlparse(norm)
             path_str = parsed.path.strip("/")
             tag = path_str.split("/")[-1] if path_str else parsed.netloc
-        tag = _ROOT_TAG_SUFFIX_RE.sub("", tag).strip()
+        tag = _clean_root_label(tag)
         tag_map[norm] = tag
 
         # Build presentation map
@@ -265,6 +265,24 @@ def build_root_maps() -> tuple[dict[str, str], dict[str, dict]]:
         }
 
     return tag_map, presentation_map
+
+
+def _clean_root_label(label: str | None) -> str:
+    text = (label or "").strip()
+    if not text:
+        return ""
+    text = _ROOT_TAG_SUFFIX_RE.sub("", text).strip()
+    if text.lower() == "h5ai":
+        return ""
+    return text
+
+
+def _display_root_label(root: str, root_tags: dict[str, str] | None = None) -> str:
+    if root_tags:
+        cleaned = _clean_root_label(root_tags.get(root))
+        if cleaned:
+            return cleaned
+    return _clean_root_label(root)
 
 
 def _fzf_binary() -> str | None:
@@ -555,10 +573,8 @@ def _fzf_history_text(
     file_text = _pretty_filename(entry.filename) if dots_to_spaces else entry.filename
     dir_label = _dir_label_from_path(entry.path)
     dir_text = _ansi_rgb(dir_label, 136, 192, 208, bold=True)
-    root_label = root_tags.get(entry.root, entry.root)
-    root_text = _ansi_rgb(root_label, 94, 129, 172)
     played_text = _ansi_rgb(played_at, 76, 86, 106)
-    return f"{file_text}    {dir_text}    {played_text}    {root_text}"
+    return f"{file_text}    {dir_text}    {played_text}"
 
 
 def _fzf_preview_text(entry: MediaEntry, all_entries: list[MediaEntry]) -> str:
@@ -1022,6 +1038,39 @@ def build_dir_playlist(
                     )
                     return cross_playlist, start_index
 
+    # --- Strategy 1b: broader show-name matching across the whole library ---
+    # This catches the common case where each season lives under its own root,
+    # so tag-scoped matching only sees the current season folder.
+    if show_name:
+        cur.execute("SELECT url, root, path, filename, size, modified FROM media")
+        rows = cur.fetchall()
+        broad_playlist = [
+            _make_entry(r)
+            for r in rows
+            if EPISODE_REGEX.search(r["filename"])
+            and extract_show_name(r["filename"]) == show_name
+        ]
+        if len(broad_playlist) >= 2:
+            seen: dict[tuple, MediaEntry] = {}
+            for ep in sorted(
+                broad_playlist, key=lambda e: _episode_sort_key(e.filename)
+            ):
+                m = EPISODE_REGEX.search(ep.filename)
+                if not m:
+                    continue
+                ep_key = (int(m.group(1)), int(m.group(2)))
+                if ep_key not in seen or _variant_rank(ep) > _variant_rank(
+                    seen[ep_key]
+                ):
+                    seen[ep_key] = ep
+            broad_playlist = sorted(
+                seen.values(), key=lambda e: _episode_sort_key(e.filename)
+            )
+            start_index = next(
+                (i for i, e in enumerate(broad_playlist) if e.url == entry.url), 0
+            )
+            return broad_playlist, start_index
+
     # --- Strategy 2: fallback — strict same-directory matching ---
     cur.execute(
         "SELECT url, root, path, filename, size, modified FROM media WHERE path = ?",
@@ -1132,8 +1181,6 @@ def play_entry(
                         root_presentation.get(e.root, {}).get("dots_to_spaces", False)
                     ),
                 )
-                if root_label:
-                    title = f"{title} [{root_label}]"
                 f.write(f"#EXTINF:0,{title}\n{e.url}\n")
     except Exception as e:
         print(Fore.RED + f"  !! Failed to create playlist file: {e}")
@@ -1315,7 +1362,7 @@ def rebuild_fzf_cache(conn) -> None:
                 "url": entry.url,
                 "size": entry.size,
                 "modified": entry.modified,
-                "tag": root_tags.get(entry.root, ""),
+                "tag": _display_root_label(entry.root, root_tags),
             }
             opts = root_presentation.get(entry.root, {})
             data_item["dots_to_spaces"] = opts.get("dots_to_spaces", False)
@@ -1787,10 +1834,9 @@ def search_index() -> None:
                 entry, score = row
                 num = index + 1
                 color = Fore.GREEN if index % 2 == 0 else Fore.CYAN
-                display_root = root_tags.get(entry.root, entry.root)
                 return [
                     color + f"{num:2d}. {entry.filename} (score {score:.1f})",
-                    Fore.YELLOW + f"    [{display_root}] {entry.path}",
+                    Fore.YELLOW + f"    {entry.path}",
                 ]
 
             _render_numbered_items(results, _render_row)
@@ -1906,10 +1952,9 @@ def show_history() -> None:
             entry, played_at = row
             num = index + 1
             color = Fore.GREEN if index % 2 == 0 else Fore.CYAN
-            display_root = root_tags.get(entry.root, entry.root)
             return [
                 color + f"{num:2d}. {entry.filename}",
-                Fore.YELLOW + f"    [{display_root}] {entry.path}",
+                Fore.YELLOW + f"    {entry.path}",
                 Fore.CYAN + f"    Played at: {played_at}",
             ]
 
@@ -2005,10 +2050,9 @@ def download_index() -> None:
                 entry, score = row
                 num = index + 1
                 color = Fore.GREEN if index % 2 == 0 else Fore.CYAN
-                display_root = root_tags.get(entry.root, entry.root)
                 return [
                     color + f"{num:2d}. {entry.filename} (score {score:.1f})",
-                    Fore.YELLOW + f"    [{display_root}] {entry.path}",
+                    Fore.YELLOW + f"    {entry.path}",
                 ]
 
             _render_numbered_items(results, _render_row)
