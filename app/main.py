@@ -63,6 +63,8 @@ _METADATA_TAG_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ROOT_TAG_SUFFIX_RE = re.compile(r"\s*\[h5ai\]\s*$", re.IGNORECASE)
+
 # Strips junk after the show name — brackets, parens, resolution tags etc.
 _SHOW_NAME_STRIP_RE = re.compile(
     r"(\[.*?\]|\(.*?\)|\d{3,4}p|BluRay|WEBRip|HDTV|x264|x265|HEVC|AAC|DTS|AC3|"
@@ -254,6 +256,7 @@ def build_root_maps() -> tuple[dict[str, str], dict[str, dict]]:
             parsed = urlparse(norm)
             path_str = parsed.path.strip("/")
             tag = path_str.split("/")[-1] if path_str else parsed.netloc
+        tag = _ROOT_TAG_SUFFIX_RE.sub("", tag).strip()
         tag_map[norm] = tag
 
         # Build presentation map
