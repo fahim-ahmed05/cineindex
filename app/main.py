@@ -732,6 +732,7 @@ DOT_BLOCKLIST_PATTERNS = [
     r'\\b(?:[A-Z]\\.)+[A-Z]\\b',  # Acronyms like S.H.I.E.L.D, U.N.C.L.E
 ]
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
+_METADATA_TAG_RE = re.compile(r'\\.(?=(?:\\d{{3,4}}p|BluRay|WEBRip|WEB-DL|BDRip|HDRip|x264|x265|HEVC|AAC|DTS|AC3|\\dCH)\\b)', re.IGNORECASE)
 
 try:
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -806,6 +807,7 @@ def pretty_filename(fname, dots_to_spaces=False):
             result.append(char)
     
     display = ''.join(result)
+    display = _METADATA_TAG_RE.sub(' ', display)
     display = ' '.join([p for p in display.split() if p]) or name
     return f'{{display}}.{{ext}}'
 
@@ -1417,7 +1419,7 @@ from email.utils import parsedate_to_datetime
 EPISODE_REGEX = re.compile(r'[sS](\\d{{1,2}})[ ._-]*[eE](\\d{{1,3}})')
 DOT_BLOCKLIST_PATTERNS = [r'\\d+\\.\\d+', r'\\b(?:[A-Z]\\.)+[A-Z]\\b']
 COMPILED_DOT_BLOCKLIST = [re.compile(p) for p in DOT_BLOCKLIST_PATTERNS]
-_METADATA_TAG_RE = re.compile(r'\\.(?=(?:\\d{3,4}p|BluRay|WEBRip|WEB-DL|BDRip|HDRip|x264|x265|HEVC|AAC|DTS|AC3|\\dCH)\\b)', re.IGNORECASE)
+_METADATA_TAG_RE = re.compile(r'\\.(?=(?:\\d{{3,4}}p|BluRay|WEBRip|WEB-DL|BDRip|HDRip|x264|x265|HEVC|AAC|DTS|AC3|\\dCH)\\b)', re.IGNORECASE)
 _SHOW_NAME_STRIP_RE = re.compile(
     r'(\\[.*?\\]|\\(.*?\\)|\\d{{3,4}}p|BluRay|WEBRip|HDTV|x264|x265|HEVC|AAC|DTS|AC3|'
     r'DUAL|MULTI|ESub|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|DIRECTORS\\.CUT)',
