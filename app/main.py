@@ -1588,7 +1588,7 @@ if m:
 
 def _run_index(incremental: bool) -> None:
     action_name = "Update" if incremental else "Build"
-    print(Fore.MAGENTA + f"\n=== Index {action_name} ===\n")
+    print(Fore.MAGENTA + f"\n=== CineIndex {action_name} ===\n")
     print(
         Fore.CYAN
         + f"[{action_name.upper()}] "
@@ -1699,7 +1699,7 @@ def update_index() -> None:
 
 
 def show_stats() -> None:
-    print(Fore.MAGENTA + f"\n=== Database Stats ===")
+    print(Fore.MAGENTA + f"\n=== CineIndex Stats ===")
     print(Fore.CYAN + "\n[STATS] Gathering database stats...\n")
     init_db()
     conn = get_conn()
@@ -1831,7 +1831,7 @@ def _get_media_by_url(conn, url: str) -> MediaEntry | None:
 def search_index() -> None:
     init_db()
     conn = get_conn()
-    print(Fore.MAGENTA + "\n=== Stream ===")
+    print(Fore.MAGENTA + "\n=== CineIndex Stream ===")
     try:
         last_query: str = ""
 
@@ -1973,7 +1973,7 @@ def show_history() -> None:
 
         root_tags = build_root_tag_map()
         root_presentation = build_root_presentation_map()
-        print(Fore.MAGENTA + "\n=== Watch History ===\n")
+        print(Fore.MAGENTA + "\n=== CineIndexWatch History ===\n")
 
         if _fzf_binary():
             print(
@@ -2026,7 +2026,7 @@ def show_history() -> None:
 def download_index() -> None:
     init_db()
     conn = get_conn()
-    print(Fore.MAGENTA + "\n=== Download ===")
+    print(Fore.MAGENTA + "\n=== CineIndex Download ===")
     try:
         last_query: str = ""
 
@@ -2126,7 +2126,7 @@ def download_index() -> None:
 
 
 def print_menu() -> None:
-    print(Fore.MAGENTA + Style.BRIGHT + "=== Menu ===\n")
+    print(Fore.MAGENTA + Style.BRIGHT + "=== CineIndex TUI ===\n")
     print(Fore.YELLOW + "1." + Style.RESET_ALL + " Build index (full crawl)")
     print(Fore.YELLOW + "2." + Style.RESET_ALL + " Update index (incremental)")
     print(Fore.YELLOW + "3." + Style.RESET_ALL + " Show stats")
