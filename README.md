@@ -211,11 +211,9 @@ This is used to populate the in-app **Watch History** menu and resume playback.
 
 ### Metadata Display
 
-Media entries now display additional metadata:
+Media entries display additional metadata:
 - **File size**: Human-readable format (KB, MB, GB)
 - **Modified date**: Last modification timestamp from the server
-
-This metadata is also included in generated M3U playlists for enhanced media player support.
 
 ### Smart Filename Parsing
 
@@ -225,14 +223,6 @@ CineIndex employs intelligent filename processing to improve display quality:
   - Audio formats: `5.1`, `2.0`, `7.1`
   - Bitrates and framerates: `1080.60`, `2.5Mbps`
   - Acronyms: `S.H.I.E.L.D`, `U.N.C.L.E`
-
-- **Metadata tag stripping**: Removes quality indicators and tags from displayed names:
-  - Resolution: `1080p`, `4K`
-  - Codecs: `x264`, `x265`, `HEVC`
-  - Audio: `AAC`, `DTS`, `AC3`, `5.1CH`
-  - Format: `BluRay`, `WEBRip`, `WEB-DL`
-
-- **h5ai suffix handling**: Automatically strips h5ai directory index suffixes for cleaner root names
 
 ### Episode Indexing
 
@@ -251,10 +241,24 @@ For TV series stored in standard formats (e.g., `Show Name S01E01.mkv`):
 
 ### Playlist Generation
 
+#### For TV Shows
+
+When playing a TV series episode, CineIndex automatically generates a smart playlist of all episodes across all seasons:
+
+1. **Cross-root tag matching** — Finds episodes of the same show across all roots with the same tag (e.g., all episodes in the "server3" group)
+2. **Broad library search** — Falls back to searching the entire library by normalized show name across all roots
+3. **Deduplication** — When multiple variants of the same episode exist (e.g., different language/quality versions), intelligently selects the best match based on folder context
+4. **Automatic sequencing** — Episodes are sorted by season and episode number for proper playback order
+5. **Resume position** — The currently selected episode is set as the starting point in the playlist
+
+This allows seamless multi-root TV series viewing, even when seasons are spread across different servers.
+
+#### M3U Format
+
 Generated M3U playlists include:
-- Root presentation labels for easy organization
-- Media metadata (duration, file size)
-- Proper encoding and formatting for media player compatibility
+- Media name/title
+- Direct media URLs for streaming
+- Standard M3U format for media player compatibility
 
 
 
