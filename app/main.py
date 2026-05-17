@@ -107,6 +107,22 @@ def separator_line() -> str:
     return Fore.MAGENTA + Style.DIM + "─" * min(width, 120)
 
 
+def format_duration(seconds: float) -> str:
+    """Format seconds into a human-readable string (e.g. 1h2m3.0s)."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    
+    minutes = int(seconds // 60)
+    rem_seconds = seconds % 60
+    
+    if minutes < 60:
+        return f"{minutes}m{rem_seconds:.1f}s"
+        
+    hours = minutes // 60
+    rem_minutes = minutes % 60
+    return f"{hours}h{rem_minutes}m{rem_seconds:.1f}s"
+
+
 # ---------- Banner ----------
 
 
@@ -1675,7 +1691,7 @@ def _run_index(incremental: bool) -> None:
                         f"[{action_name.upper()}] {index}/{total_roots} done | root={rc.url} | "
                         f"{_change_text(before_dirs, after_dirs, 'dirs')}, "
                         f"{_change_text(before_media, after_media, 'files')}, "
-                        f"time={elapsed_seconds:.1f}s"
+                        f"time={format_duration(elapsed_seconds)}"
                     )
                 )
             else:
@@ -1684,7 +1700,7 @@ def _run_index(incremental: bool) -> None:
                     + (
                         f"[{action_name.upper()}] {index}/{total_roots} done | root={rc.url} | "
                         f"+dirs={after_dirs - before_dirs}, +files={after_media - before_media}, "
-                        f"time={elapsed_seconds:.1f}s"
+                        f"time={format_duration(elapsed_seconds)}"
                     )
                 )
 
