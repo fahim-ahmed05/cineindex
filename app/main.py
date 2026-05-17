@@ -1586,7 +1586,7 @@ if m:
 
 def _run_index(incremental: bool) -> None:
     action_name = "Update" if incremental else "Build"
-    print(Fore.MAGENTA + f"\n=== CineIndex {action_name} ===\n")
+    print(Fore.MAGENTA + f"\n=== Index {action_name} ===\n")
     print(
         Fore.CYAN
         + f"[{action_name.upper()}] "
@@ -1697,7 +1697,7 @@ def update_index() -> None:
 
 
 def show_stats() -> None:
-    print(Fore.MAGENTA + f"\n=== CineIndex Stats ===")
+    print(Fore.MAGENTA + f"\n=== Database Stats ===")
     print(Fore.CYAN + "\n[STATS] Gathering database stats...\n")
     init_db()
     conn = get_conn()
@@ -1829,7 +1829,7 @@ def _get_media_by_url(conn, url: str) -> MediaEntry | None:
 def search_index() -> None:
     init_db()
     conn = get_conn()
-    print(Fore.MAGENTA + "\n=== CineIndex Search ===")
+    print(Fore.MAGENTA + "\n=== Stream ===")
     try:
         last_query: str = ""
 
@@ -1839,7 +1839,7 @@ def search_index() -> None:
 
             print(
                 Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, ? for preview, Esc to exit.\n"
             )
 
             while True:
@@ -1971,12 +1971,12 @@ def show_history() -> None:
 
         root_tags = build_root_tag_map()
         root_presentation = build_root_presentation_map()
-        print(Fore.MAGENTA + "\n=== CineIndex Watch History ===\n")
+        print(Fore.MAGENTA + "\n=== Watch History ===\n")
 
         if _fzf_binary():
             print(
                 Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, Esc to exit.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Enter to select, ? for preview, Esc to exit.\n"
             )
             picked, _ = _fzf_pick_media(
                 history, root_tags, root_presentation, prompt="Search: "
@@ -2024,7 +2024,7 @@ def show_history() -> None:
 def download_index() -> None:
     init_db()
     conn = get_conn()
-    print(Fore.MAGENTA + "\n=== CineIndex Download ===")
+    print(Fore.MAGENTA + "\n=== Download ===")
     try:
         last_query: str = ""
 
@@ -2034,7 +2034,7 @@ def download_index() -> None:
 
             print(
                 Fore.CYAN
-                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download, Esc to exit.\n"
+                + "[SEARCH] Using fzf picker. Type to filter, Tab to mark, Enter to download, ? for preview, Esc to exit.\n"
             )
 
             while True:
@@ -2124,7 +2124,7 @@ def download_index() -> None:
 
 
 def print_menu() -> None:
-    print(Fore.MAGENTA + Style.BRIGHT + "=== CineIndex TUI ===\n")
+    print(Fore.MAGENTA + Style.BRIGHT + "=== Menu ===\n")
     print(Fore.YELLOW + "1." + Style.RESET_ALL + " Build index (full crawl)")
     print(Fore.YELLOW + "2." + Style.RESET_ALL + " Update index (incremental)")
     print(Fore.YELLOW + "3." + Style.RESET_ALL + " Show stats")
