@@ -1374,40 +1374,53 @@ def rebuild_fzf_cache(conn) -> None:
                 modified=r["modified"],
             )
             display_text = _fzf_media_text(entry, root_tags, root_presentation)
-            lines.append(f"{index}\t{display_text}\t{entry.url}")
-
-            data_item = {
-                "filename": entry.filename,
-                "root": entry.root,
-                "path": entry.path,
-                "url": entry.url,
-                "size": entry.size,
-                "modified": entry.modified,
-                "tag": _display_root_label(entry.root, root_tags),
-            }
+            
+            tag = _display_root_label(entry.root, root_tags)
             opts = root_presentation.get(entry.root, {})
-            data_item["dots_to_spaces"] = opts.get("dots_to_spaces", False)
-            entries_data.append(data_item)
+            dots_to_spaces = opts.get("dots_to_spaces", False)
+            
+            # Pack all preview data into TSV columns so preview script doesn't need to load a 180MB JSON file.
+            lines.append(
+                f"{index}\t{display_text}\t{entry.url}\t{entry.path}\t{entry.filename}\t"
+                f"{entry.size or ''}\t{entry.modified or ''}\t{entry.root}\t{tag}\t"
+                f"{1 if dots_to_spaces else 0}"
+            )
 
         FZF_INPUT_CACHE.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        FZF_JSON_CACHE.write_text(json.dumps(entries_data), encoding="utf-8")
 
-        # Pre-build episode index: (tag, show_name) -> [entry, ...]
-        # This makes preview lookups O(1) instead of O(n) over 287k entries.
+        # Pre-build lightweight episode index: (tag, show_name) -> [[root, filename, dots_to_spaces], ...]
+        # This makes cross-root preview lookups O(1) and keeps JSON small.
         episode_index: dict[str, list] = {}
-        for item in entries_data:
-            if not EPISODE_REGEX.search(item["filename"]):
+        for r in rows:
+            filename = r["filename"]
+            if not EPISODE_REGEX.search(filename):
                 continue
-            show = extract_show_name(item["filename"])
+            show = extract_show_name(filename)
             if not show:
                 continue
-            key = f"{item.get('tag','')}|{show}"
-            episode_index.setdefault(key, []).append(item)
+            
+            root = r["root"]
+            tag = _display_root_label(root, root_tags)
+            key = f"{tag}|{show}"
+            
+            opts = root_presentation.get(root, {})
+            dots_to_spaces = opts.get("dots_to_spaces", False)
+            
+            episode_index.setdefault(key, []).append([root, filename, dots_to_spaces])
+            
         episode_index_json = json.dumps(episode_index)
         FZF_EP_INDEX_CACHE.write_text(episode_index_json, encoding="utf-8")
 
+        # We no longer write the massive FZF_JSON_CACHE, just delete it if it exists
+        if FZF_JSON_CACHE.exists():
+            try:
+                FZF_JSON_CACHE.unlink()
+            except OSError:
+                pass
+
         ep_index_path = FZF_EP_INDEX_CACHE.as_posix()
-        preview_file_path = FZF_JSON_CACHE.as_posix()
+        from app.db import DB_PATH
+        db_path = DB_PATH.as_posix()
         script_code = f"""
 import json
 import sys
@@ -1501,30 +1514,26 @@ def extract_show_name(filename):
     if len(normalized) < 3: return None
     return normalized
 
-# Pre-built episode index keyed by "tag|show_name" - loaded from cache file
-try:
-    EPISODE_INDEX = json.load(open(r'{ep_index_path}', encoding='utf-8'))
-except Exception:
-    EPISODE_INDEX = {{}}
-
-entries_data = json.load(open(r'{preview_file_path}', encoding='utf-8'))
+# We load EPISODE_INDEX lazily only if the item is an episode.
 
 line_text = sys.argv[1] if len(sys.argv) > 1 else ''
-line_index = line_text.split('\\t', 1)[0].strip()
-if not line_index.isdigit(): sys.exit(1)
-entry_index = int(line_index)
-if entry_index < 1 or entry_index > len(entries_data): sys.exit(1)
+parts = line_text.split('\\t')
+if len(parts) < 10:
+    sys.exit(0)
 
-entry_data = entries_data[entry_index - 1]
-filename = entry_data['filename']
-display_path = unquote(entry_data['path'])
-dots_to_spaces = entry_data.get('dots_to_spaces', False)
+# 0:idx, 1:display, 2:url, 3:path, 4:filename, 5:size, 6:mod, 7:root, 8:tag, 9:dots_to_spaces
+display_path = unquote(parts[3])
+raw_path = parts[3]
+filename = parts[4]
+size_str = parts[5]
+mod_str = parts[6]
+entry_root = parts[7]
+display_root = unquote(entry_root)
+entry_tag = parts[8]
+dots_to_spaces = bool(int(parts[9].strip() or "0"))
+
 display_filename = pretty_filename(unquote(filename), dots_to_spaces=dots_to_spaces)
-display_root = unquote(entry_data['root'])
-entry_tag = entry_data.get('tag', '')
 
-size_str = entry_data.get('size')
-mod_str = entry_data.get('modified')
 meta_lines = []
 if size_str: meta_lines.append(f"Size: {{format_size(size_str)}}")
 if mod_str: meta_lines.append(f"Modified: {{format_timestamp(mod_str)}}")
@@ -1538,26 +1547,35 @@ if m:
     current_show = extract_show_name(filename)
 
     if current_show and entry_tag:
+        try:
+            EPISODE_INDEX = json.load(open(r'{ep_index_path}', encoding='utf-8'))
+        except Exception:
+            EPISODE_INDEX = {{}}
         key = entry_tag + '|' + current_show
         all_eps = EPISODE_INDEX.get(key, [])
     else:
-        all_eps = [
-            e for e in entries_data
-            if e['path'] == entry_data['path']
-            and EPISODE_REGEX.search(e['filename'])
-        ]
+        # Fallback to SQLite lookup for same directory (very fast)
+        try:
+            import sqlite3
+            conn = sqlite3.connect(r'{db_path}')
+            cur = conn.cursor()
+            cur.execute("SELECT root, filename FROM media WHERE path = ?", (raw_path,))
+            all_eps = [[r[0], r[1], dots_to_spaces] for r in cur.fetchall()]
+            conn.close()
+        except Exception:
+            all_eps = []
 
     if len(all_eps) >= 2:
-        all_eps.sort(key=lambda e: episode_sort_key(e['filename']))
+        all_eps.sort(key=lambda e: episode_sort_key(e[1]))
 
         # Deduplicate: same episode from multiple servers -> keep same-root first, then first seen
-        entry_root = entry_data['root']
         seen_eps = {{}}
         for ep in all_eps:
-            ep_m = EPISODE_REGEX.search(ep['filename'])
+            ep_root, ep_fname, ep_dots = ep
+            ep_m = EPISODE_REGEX.search(ep_fname)
             if not ep_m: continue
             ep_key = (int(ep_m.group(1)), int(ep_m.group(2)))
-            if ep_key not in seen_eps or ep['root'] == entry_root:
+            if ep_key not in seen_eps or ep_root == entry_root:
                 seen_eps[ep_key] = ep
 
         seasons = {{}}
@@ -1569,9 +1587,10 @@ if m:
             if s == current_season:
                 print(f"Season {{s}}:")
                 for ep_num, ep in sorted(seasons[s]):
-                    is_cur = ep['root'] == entry_root and ep['filename'] == filename
+                    ep_root, ep_fname, ep_dots = ep
+                    is_cur = ep_root == entry_root and ep_fname == filename
                     marker = ">" if is_cur else " "
-                    ep_display = pretty_filename(unquote(ep['filename']), dots_to_spaces=ep.get('dots_to_spaces', False))
+                    ep_display = pretty_filename(unquote(ep_fname), dots_to_spaces=ep_dots)
                     print(f"{{marker}} E{{ep_num:02d}}: {{ep_display}}")
             else:
                 ep_count = len(seasons[s])
@@ -1767,7 +1786,8 @@ def _fzf_pick_persistent(
         for line in lines_out[1:]:
             parts = line.split("\t")
             if len(parts) >= 3:
-                selected.append(parts[-1].strip())
+                # The URL is always the 3rd column (index 2) in the generated TSV.
+                selected.append(parts[2].strip())
 
         return selected, last_query
     finally:
